@@ -1,0 +1,69 @@
+import 'package:dio/dio.dart';
+import 'package:logger/logger.dart';
+import 'app_settings.dart';
+
+class ApiService {
+  Dio? _dio;
+  final Logger _logger = Logger();
+
+  /// Returns a configured Dio instance with the current server URL and API key.
+  /// Lazily initialized and recreated if settings change.
+  Future<Dio> _getDio() async {
+    final serverUrl = await AppSettings.getServerUrl();
+    final apiKey = await AppSettings.getApiKey();
+
+    _dio = Dio(BaseOptions(
+      baseUrl: serverUrl,
+      headers: {
+        'Content-Type': 'application/json',
+        if (apiKey.isNotEmpty) 'X-API-Key': apiKey,
+      },
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+    ));
+
+    return _dio!;
+  }
+
+  /// Submit the Attendance Punch to the FastAPI Middleware
+  Future<Map<String, dynamic>> submitPunch({
+    required String employeeId,
+    required String deviceUuid,
+    required double lat,
+    required double lon,
+    required bool isMocked,
+    required bool biometricVerified,
+    required String punchType,
+    required String timestamp,
+    int tzOffsetMinutes = 420, // Default: GMT+7 (420 minutes)
+    bool gpsValidated = false,
+  }) async {
+    final dio = await _getDio();
+    try {
+      _logger.i('Attempting punch: $punchType for $employeeId');
+
+      final response = await dio.post('/api/v1/punch', data: {
+        'employee_id': employeeId,
+        'device_uuid': deviceUuid,
+        'latitude': lat,
+        'longitude': lon,
+        'is_mock_location': isMocked,
+        'biometric_verified': biometricVerified,
+        'punch_type': punchType,
+        'timestamp': timestamp,
+        'tz_offset_minutes': tzOffsetMinutes,
+        'gps_time_validated': gpsValidated,
+      });
+
+      _logger.i('Punch successful: ${response.data}');
+      return response.data;
+    } on DioException catch (e) {
+      final errorMsg = e.response?.data?['detail'] ?? e.message ?? 'Network error';
+      _logger.e('Punch failed: $errorMsg');
+      throw Exception(errorMsg);
+    } catch (e) {
+      _logger.e('Unexpected error: $e');
+      throw Exception('An unexpected error occurred during punch.');
+    }
+  }
+}

@@ -1,0 +1,87 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../services/api_service.dart';
+import '../services/security_service.dart';
+
+final apiServiceProvider = Provider((ref) => ApiService());
+final securityServiceProvider = Provider((ref) => SecurityService());
+
+enum PunchStatus { idle, loading, success, error }
+
+class PunchState {
+  final PunchStatus status;
+  final String? errorMessage;
+  final Map<String, dynamic>? result;
+
+  PunchState({required this.status, this.errorMessage, this.result});
+
+  factory PunchState.initial() => PunchState(status: PunchStatus.idle);
+}
+
+class PunchNotifier extends StateNotifier<PunchState> {
+  final ApiService _api;
+  final SecurityService _security;
+
+  PunchNotifier(this._api, this._security) : super(PunchState.initial());
+
+  Future<void> performPunch(String employeeId, String punchType) async {
+    state = PunchState(status: PunchStatus.loading);
+
+    try {
+      // Step A: Attempt biometric/device auth
+      final authResult = await _security.authenticateWithDevice();
+
+      if (!authResult.verified && authResult.reason == 'user_cancelled') {
+        throw Exception("Authentication cancelled. Please verify your identity to record attendance.");
+      }
+
+      final biometricVerified = authResult.verified;
+
+      // Step B: Hardware Identity
+      final uuid = await _security.getDeviceUniqueId();
+
+      // Step C: Geolocation & Anti-Spoofing
+      final position = await _security.getCurrentValidatedLocation();
+      if (position == null) {
+        throw Exception("Could not get location. Enable GPS and try again.");
+      }
+
+      // Step D: Local Mock Rejection
+      if (position.isMocked) {
+        throw Exception("Security Alert: Mock/fake location detected. Punch rejected.");
+      }
+
+      // Step E: GPS-Validated Local Time (works offline, no NTP needed)
+      // Cross-validates device clock against GPS satellite time
+      final timeResult = await _security.getReliableTimestamp(gpsPosition: position);
+
+      // Step F: Submit to Aggregator
+      final response = await _api.submitPunch(
+        employeeId: employeeId,
+        deviceUuid: uuid,
+        lat: position.latitude,
+        lon: position.longitude,
+        isMocked: position.isMocked,
+        biometricVerified: biometricVerified,
+        punchType: punchType,
+        timestamp: timeResult.isoString,
+        tzOffsetMinutes: timeResult.tzOffsetMinutes,
+        gpsValidated: timeResult.gpsValidated,
+      );
+
+      state = PunchState(status: PunchStatus.success, result: response);
+    } catch (e) {
+      state = PunchState(status: PunchStatus.error, errorMessage: e.toString());
+    }
+  }
+
+  void reset() {
+    state = PunchState.initial();
+  }
+}
+
+final punchStateProvider = StateNotifierProvider<PunchNotifier, PunchState>((ref) {
+  return PunchNotifier(
+    ref.watch(apiServiceProvider),
+    ref.watch(securityServiceProvider),
+  );
+});
