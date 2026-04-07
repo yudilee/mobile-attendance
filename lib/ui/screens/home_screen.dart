@@ -59,15 +59,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final punchState = ref.watch(punchStateProvider);
     final punchNotifier = ref.read(punchStateProvider.notifier);
+    final deviceConfig = ref.watch(deviceConfigProvider);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Secure Attendance'),
+        title: const Text('Virtual Attendance'),
         elevation: 0,
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh Status',
+            onPressed: () => ref.invalidate(deviceConfigProvider),
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Configure',
@@ -80,41 +86,79 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _HeaderWidget(
-              employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
-              isConfigured: _isConfigured,
-              onSetupTap: _openSettings,
+            deviceConfig.when(
+              data: (config) => _HeaderWidget(
+                employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
+                isConfigured: _isConfigured,
+                onSetupTap: _openSettings,
+                branchName: config['status'] == 'assigned' ? config['branch_name'] : null,
+              ),
+              loading: () => _HeaderWidget(
+                employeeId: _employeeId,
+                isConfigured: _isConfigured,
+                onSetupTap: _openSettings,
+              ),
+              error: (err, _) => _HeaderWidget(
+                employeeId: _employeeId,
+                isConfigured: _isConfigured,
+                onSetupTap: _openSettings,
+                branchName: 'Connection Error',
+              ),
             ),
             const Spacer(),
 
-            // Not configured warning
+            // Config / Branch Status logic
             if (!_isConfigured)
               _NotConfiguredCard(onSetupTap: _openSettings)
-            else if (punchState.status == PunchStatus.loading)
-              const Center(
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(color: Colors.indigo),
-                    SizedBox(height: 16),
-                    Text('Verifying biometrics & location...', style: TextStyle(color: Colors.grey)),
-                  ],
+            else
+              deviceConfig.when(
+                data: (config) {
+                  if (config['status'] == 'pending') {
+                    return _PendingAssignmentCard();
+                  }
+                  
+                  if (punchState.status == PunchStatus.loading) {
+                    return const Center(
+                      child: Column(
+                        children: [
+                          CircularProgressIndicator(color: Colors.indigo),
+                          SizedBox(height: 16),
+                          Text('Verifying biometrics & location...', style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      _PunchButton(
+                        label: 'CLOCK IN',
+                        icon: Icons.login_rounded,
+                        color: Colors.green.shade600,
+                        onPressed: () => punchNotifier.performPunch(_employeeId, 'In'),
+                      ),
+                      const SizedBox(height: 16),
+                      _PunchButton(
+                        label: 'CLOCK OUT',
+                        icon: Icons.logout_rounded,
+                        color: Colors.red.shade600,
+                        onPressed: () => punchNotifier.performPunch(_employeeId, 'Out'),
+                      ),
+                    ],
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (err, _) => Center(
+                  child: Column(
+                    children: [
+                      const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
+                      const SizedBox(height: 8),
+                      Text('Sync Failed: $err', textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+                      TextButton(onPressed: () => ref.invalidate(deviceConfigProvider), child: const Text('Try Again')),
+                    ],
+                  ),
                 ),
-              )
-            else ...[
-              _PunchButton(
-                label: 'CLOCK IN',
-                icon: Icons.login_rounded,
-                color: Colors.green.shade600,
-                onPressed: () => punchNotifier.performPunch(_employeeId, 'In'),
               ),
-              const SizedBox(height: 16),
-              _PunchButton(
-                label: 'CLOCK OUT',
-                icon: Icons.logout_rounded,
-                color: Colors.red.shade600,
-                onPressed: () => punchNotifier.performPunch(_employeeId, 'Out'),
-              ),
-            ],
 
             const Spacer(),
             _StatusFeedback(state: punchState),
@@ -131,42 +175,113 @@ class _HeaderWidget extends StatelessWidget {
   final String employeeId;
   final bool isConfigured;
   final VoidCallback onSetupTap;
+  final String? branchName;
 
   const _HeaderWidget({
     required this.employeeId,
     required this.isConfigured,
     required this.onSetupTap,
+    this.branchName,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
+      shadowColor: Colors.black26,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Colors.white, Colors.indigo.shade50],
+          ),
+        ),
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            CircleAvatar(
-              radius: 40,
-              backgroundColor: isConfigured ? Colors.indigoAccent : Colors.grey.shade300,
-              child: Icon(
-                isConfigured ? Icons.person : Icons.person_off,
-                size: 40,
-                color: Colors.white,
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: (branchName != null && branchName != 'Connection Error') ? Colors.indigo.withOpacity(0.2) : Colors.black12, blurRadius: 10, spreadRadius: 2)
+                ]
+              ),
+              child: CircleAvatar(
+                radius: 40,
+                backgroundColor: isConfigured ? Colors.indigoAccent : Colors.grey.shade300,
+                child: Icon(
+                  isConfigured ? Icons.person : Icons.person_off,
+                  size: 40,
+                  color: Colors.white,
+                ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
               isConfigured ? employeeId : 'Setup Required',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.5),
             ),
-            Text(
-              isConfigured ? 'Remote Site' : 'Tap ⚙️ to configure',
-              style: TextStyle(color: isConfigured ? Colors.grey : Colors.orange),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  branchName != null ? Icons.location_on : Icons.location_off,
+                  size: 14,
+                  color: branchName != null ? Colors.indigo : Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  branchName ?? (isConfigured ? 'Syncing branch...' : 'Tap ⚙️ to configure'),
+                  style: TextStyle(
+                    color: branchName == 'Connection Error' ? Colors.red : Colors.grey.shade700,
+                    fontWeight: branchName != null ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PendingAssignmentCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.amber.shade200, width: 2),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.app_registration_rounded, size: 40, color: Colors.amber),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Device Not Assigned',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.brown),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Your device is registered, but hasn\'t been assigned to a branch yet.\n\nPlease contact your HR Administrator.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.brown, height: 1.4),
+          ),
+        ],
       ),
     );
   }
@@ -230,15 +345,61 @@ class _PunchButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 28),
-      label: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    // Create a gradient based on the base color
+    final gradient = LinearGradient(
+      colors: [color, color.withBlue((color.blue + 30).clamp(0, 255))],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
+
+    return Container(
+      width: double.infinity,
+      height: 70,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: gradient,
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 28),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

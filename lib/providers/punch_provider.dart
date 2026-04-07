@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
 import '../services/security_service.dart';
+import '../services/app_settings.dart';
 
 final apiServiceProvider = Provider((ref) => ApiService());
 final securityServiceProvider = Provider((ref) => SecurityService());
@@ -84,4 +85,17 @@ final punchStateProvider = StateNotifierProvider<PunchNotifier, PunchState>((ref
     ref.watch(apiServiceProvider),
     ref.watch(securityServiceProvider),
   );
+});
+
+final deviceConfigProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  final api = ref.watch(apiServiceProvider);
+  final security = ref.watch(securityServiceProvider);
+  
+  final employeeId = await AppSettings.getEmployeeId();
+  if (employeeId.isEmpty) {
+    throw Exception("Device not configured yet. Please enter your Employee ID in Settings.");
+  }
+  
+  final uuid = await security.getDeviceUniqueId();
+  return await api.getDeviceConfig(employeeId: employeeId, deviceUuid: uuid);
 });

@@ -66,4 +66,24 @@ class ApiService {
       throw Exception('An unexpected error occurred during punch.');
     }
   }
+
+  /// Fetch the branch assignment and geofence data for this device
+  Future<Map<String, dynamic>> getDeviceConfig({
+    required String employeeId,
+    required String deviceUuid,
+  }) async {
+    final dio = await _getDio();
+    try {
+      final response = await dio.get('/api/v1/device-config', queryParameters: {
+        'employee_id': employeeId,
+        'device_uuid': deviceUuid,
+      });
+      return response.data;
+    } on DioException catch (e) {
+      final errorMsg = e.response?.data?['detail'] ?? e.message ?? 'Network error';
+      throw Exception(errorMsg);
+    } catch (e) {
+      throw Exception('Failed to fetch device config');
+    }
+  }
 }
