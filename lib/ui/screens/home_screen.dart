@@ -432,9 +432,22 @@ class _StatusFeedback extends StatelessWidget {
   Widget build(BuildContext context) {
     if (state.status == PunchStatus.idle) return const SizedBox.shrink();
 
-    final isSuccess = state.status == PunchStatus.success;
-    // Extract server_time from result map if available
-    final serverTime = state.result?['server_time']?.toString().replaceAll('T', ' ').split('.').first ?? '';
+    String displayTime = '';
+    if (isSuccess && state.result?['server_time'] != null) {
+      try {
+        String rawTime = state.result!['server_time'].toString();
+        // Ensure the parser knows it's UTC if 'Z' is missing
+        if (!rawTime.endsWith('Z') && !rawTime.contains('+')) {
+          rawTime += 'Z';
+        }
+        final local = DateTime.parse(rawTime).toLocal();
+        displayTime = "${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} "
+            "${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}";
+      } catch (e) {
+        // Fallback to basic cleaning if parsing fails
+        displayTime = state.result!['server_time'].toString().replaceAll('T', ' ').split('.').first;
+      }
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -461,9 +474,9 @@ class _StatusFeedback extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (isSuccess && serverTime.isNotEmpty)
+                if (isSuccess && displayTime.isNotEmpty)
                   Text(
-                    'Server time: $serverTime UTC',
+                    'Local time: $displayTime',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
               ],
