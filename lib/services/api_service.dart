@@ -2,6 +2,13 @@ import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import 'app_settings.dart';
 
+class NetworkException implements Exception {
+  final String message;
+  const NetworkException(this.message);
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   Dio? _dio;
   final Logger _logger = Logger();
@@ -59,10 +66,20 @@ class ApiService {
       return response.data;
     } on DioException catch (e) {
       final errorMsg = e.response?.data?['detail'] ?? e.message ?? 'Network error';
-      _logger.e('Punch failed: $errorMsg');
+      _logger.e('Punch failed: $errorMsg', error: e);
+      
+      // Distinguish network/connection errors from other HTTP errors (e.g. 400 Bad Request)
+      if (e.type == DioExceptionType.connectionTimeout || 
+          e.type == DioExceptionType.sendTimeout || 
+          e.type == DioExceptionType.receiveTimeout || 
+          e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.unknown) {
+        throw NetworkException(errorMsg);
+      }
+      
       throw Exception(errorMsg);
     } catch (e) {
-      _logger.e('Unexpected error: $e');
+      _logger.e('Unexpected error', error: e);
       throw Exception('An unexpected error occurred during punch.');
     }
   }

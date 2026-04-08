@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../providers/punch_provider.dart';
+import '../../providers/network_sync_provider.dart';
 import '../../services/app_settings.dart';
 import 'settings_screen.dart';
 
@@ -21,6 +22,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     _loadEmployeeId();
     _requestPermissionsOnStartup();
+    
+    // Start background sync listener
+    Future.microtask(() {
+      ref.read(networkSyncProvider).listenToNetworkChanges();
+      ref.read(networkSyncProvider).syncOfflinePunches(); // Sync on startup in case offline punches exist
+    });
   }
 
   /// Request location permission upfront so Android shows the dialog
@@ -66,7 +73,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         title: const Text('Virtual Attendance'),
         elevation: 0,
-        backgroundColor: Colors.indigo,
+        backgroundColor: const Color(0xFF009CA6),
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -144,6 +151,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         color: Colors.red.shade600,
                         onPressed: () => punchNotifier.performPunch(_employeeId, 'Out'),
                       ),
+                      const SizedBox(height: 16),
+                      TextButton.icon(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Attempting to sync offline offline punches...')),
+                          );
+                          ref.read(networkSyncProvider).syncOfflinePunches();
+                        },
+                        icon: const Icon(Icons.sync),
+                        label: const Text('Sync Offline Data (If Any)'),
+                        style: TextButton.styleFrom(foregroundColor: const Color(0xFF009CA6)),
+                      )
                     ],
                   );
                 },
@@ -196,7 +215,7 @@ class _HeaderWidget extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Colors.white, Colors.indigo.shade50],
+            colors: [Colors.white, const Color(0xFFE0F2F1)], // Light teal match
           ),
         ),
         padding: const EdgeInsets.all(24.0),
@@ -206,12 +225,12 @@ class _HeaderWidget extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 boxShadow: [
-                  BoxShadow(color: (branchName != null && branchName != 'Connection Error') ? Colors.indigo.withOpacity(0.2) : Colors.black12, blurRadius: 10, spreadRadius: 2)
+                  BoxShadow(color: (branchName != null && branchName != 'Connection Error') ? const Color(0xFF009CA6).withOpacity(0.2) : Colors.black12, blurRadius: 10, spreadRadius: 2)
                 ]
               ),
               child: CircleAvatar(
                 radius: 40,
-                backgroundColor: isConfigured ? Colors.indigoAccent : Colors.grey.shade300,
+                backgroundColor: isConfigured ? const Color(0xFF009CA6) : Colors.grey.shade300,
                 child: Icon(
                   isConfigured ? Icons.person : Icons.person_off,
                   size: 40,
@@ -231,7 +250,7 @@ class _HeaderWidget extends StatelessWidget {
                 Icon(
                   branchName != null ? Icons.location_on : Icons.location_off,
                   size: 14,
-                  color: branchName != null ? Colors.indigo : Colors.grey,
+                  color: branchName != null ? const Color(0xFF009CA6) : Colors.grey,
                 ),
                 const SizedBox(width: 4),
                 Text(

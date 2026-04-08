@@ -23,7 +23,7 @@ class AttendanceApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.teal,
+          seedColor: const Color(0xFF009CA6),
           brightness: Brightness.light,
         ),
         // Premium Typography using Google Fonts
