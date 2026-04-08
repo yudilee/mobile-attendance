@@ -432,6 +432,7 @@ class _StatusFeedback extends StatelessWidget {
   Widget build(BuildContext context) {
     if (state.status == PunchStatus.idle) return const SizedBox.shrink();
 
+    final isSuccess = state.status == PunchStatus.success;
     String displayTime = '';
     if (isSuccess && state.result?['server_time'] != null) {
       try {
