@@ -65,7 +65,7 @@ class ApiService {
       _logger.i('Punch successful: ${response.data}');
       return response.data;
     } on DioException catch (e) {
-      final errorMsg = e.response?.data?['detail'] ?? e.message ?? 'Network error';
+      final errorMsg = (e.response?.data is Map ? e.response?.data['detail'] : null) ?? e.message ?? 'Network error';
       _logger.e('Punch failed: $errorMsg', error: e);
       
       // Distinguish network/connection errors from other HTTP errors (e.g. 400 Bad Request)
@@ -97,7 +97,7 @@ class ApiService {
       });
       return response.data;
     } on DioException catch (e) {
-      final errorMsg = e.response?.data?['detail'] ?? e.message ?? 'Network error';
+      final errorMsg = (e.response?.data is Map ? e.response?.data['detail'] : null) ?? e.message ?? 'Network error';
       throw Exception(errorMsg);
     } catch (e) {
       throw Exception('Failed to fetch device config');

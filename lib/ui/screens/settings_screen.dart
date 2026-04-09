@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/app_settings.dart';
+import '../../services/api_service.dart';
+import '../../services/security_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -14,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _serverUrlCtrl = TextEditingController();
   final _apiKeyCtrl = TextEditingController();
   bool _saving = false;
+  bool _registering = false;
   bool _obscureKey = true;
 
   @override
@@ -29,14 +32,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {});
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool silent = false}) async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     await AppSettings.setEmployeeId(_employeeIdCtrl.text);
     await AppSettings.setServerUrl(_serverUrlCtrl.text);
     await AppSettings.setApiKey(_apiKeyCtrl.text);
     setState(() => _saving = false);
-    if (mounted) {
+    if (!silent && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Settings saved!'),
@@ -44,6 +47,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
       Navigator.of(context).pop(true); // Return true to trigger reload
+    }
+  }
+
+  Future<void> _registerDevice() async {
+    if (!_formKey.currentState!.validate()) return;
+    
+    // Save settings locally first so ApiService uses them
+    await _save(silent: true);
+    
+    setState(() => _registering = true);
+    try {
+      final api = ApiService();
+      final security = SecurityService();
+      final uuid = await security.getDeviceUniqueId();
+      final employeeId = _employeeIdCtrl.text;
+      
+      await api.getDeviceConfig(employeeId: employeeId, deviceUuid: uuid);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Device registered successfully!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Registration failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _registering = false);
     }
   }
 
@@ -61,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text('App Configuration'),
-        backgroundColor: Colors.indigo,
+        backgroundColor: const Color(0xFF009CA6),
         foregroundColor: Colors.white,
         elevation: 0,
       ),
@@ -113,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: ElevatedButton(
                   onPressed: _saving ? null : _save,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
+                    backgroundColor: const Color(0xFF009CA6),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -121,6 +155,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: _saving
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : const Text('Save Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _registering || _saving ? null : _registerDevice,
+                  icon: const Icon(Icons.app_registration),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  label: _registering
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Register to Middleware', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 ),
               ),
             ],
@@ -133,11 +184,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
-      prefixIcon: Icon(icon, color: Colors.indigo),
+      prefixIcon: Icon(icon, color: const Color(0xFF009CA6)),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Colors.indigo, width: 2),
+        borderSide: const BorderSide(color: Color(0xFF009CA6), width: 2),
       ),
       filled: true,
       fillColor: Colors.white,
@@ -155,7 +206,7 @@ class _SectionHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.indigo)),
+        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF009CA6))),
         Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );

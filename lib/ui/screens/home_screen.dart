@@ -117,18 +117,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             // Config / Branch Status logic
             if (!_isConfigured)
               _NotConfiguredCard(onSetupTap: _openSettings)
+            else if (deviceConfig.isLoading && !deviceConfig.hasValue && !deviceConfig.hasError) 
+              const Center(child: CircularProgressIndicator(color: Color(0xFF009CA6)))
+            else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending')
+              _PendingAssignmentCard()
             else
-              deviceConfig.when(
-                data: (config) {
-                  if (config['status'] == 'pending') {
-                    return _PendingAssignmentCard();
-                  }
-                  
+              Builder(
+                builder: (context) {
                   if (punchState.status == PunchStatus.loading) {
                     return const Center(
                       child: Column(
                         children: [
-                          CircularProgressIndicator(color: Colors.indigo),
+                          CircularProgressIndicator(color: Color(0xFF009CA6)),
                           SizedBox(height: 16),
                           Text('Verifying biometrics & location...', style: TextStyle(color: Colors.grey)),
                         ],
@@ -138,6 +138,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
                   return Column(
                     children: [
+                      if (deviceConfig.hasError) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.offline_bolt, color: Colors.orange, size: 16),
+                              SizedBox(width: 8),
+                              Text('Offline Mode', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       _PunchButton(
                         label: 'CLOCK IN',
                         icon: Icons.login_rounded,
@@ -166,17 +185,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ],
                   );
                 },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (err, _) => Center(
-                  child: Column(
-                    children: [
-                      const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
-                      const SizedBox(height: 8),
-                      Text('Sync Failed: $err', textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
-                      TextButton(onPressed: () => ref.invalidate(deviceConfigProvider), child: const Text('Try Again')),
-                    ],
-                  ),
-                ),
               ),
 
             const Spacer(),
