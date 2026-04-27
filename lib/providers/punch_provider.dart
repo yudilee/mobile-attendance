@@ -16,6 +16,14 @@ final offlineSyncServiceProvider = Provider<OfflineSyncService>((ref) {
   return OfflineSyncService(db);
 });
 
+// Stream of cached punch types
+final punchTypesProvider = StreamProvider<List<CachedPunchType>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final query = db.select(db.cachedPunchTypes)
+    ..orderBy([(t) => OrderingTerm.asc(t.displayOrder)]);
+  return query.watch();
+});
+
 // ─── Punch State ──────────────────────────────────────────────────────────────
 
 enum PunchStatus { idle, loading, success, offline, error }
