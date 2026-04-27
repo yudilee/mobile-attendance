@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../database/app_database.dart';
+import '../../providers/punch_provider.dart';
 import '../../services/offline_sync_service.dart';
 
 // Provider to watch the local punch history
@@ -32,9 +33,9 @@ class HistoryScreen extends ConsumerWidget {
             );
           }
 
-          // Sort descending by local timestamp
+          // Sort descending by creation date
           final sortedHistory = List<PunchHistoryData>.from(history)
-            ..sort((a, b) => b.localTimestamp.compareTo(a.localTimestamp));
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
@@ -60,8 +61,8 @@ class HistoryScreen extends ConsumerWidget {
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(punch.localTimestamp.toString().split('.').first),
-                      if (punch.isSynced)
+                      Text(punch.timestamp), // Use display timestamp string
+                      if (punch.syncStatus == 'synced')
                         const Text('Synced ✅', style: TextStyle(color: Colors.green, fontSize: 12))
                       else
                         const Text('Pending Sync ⏳', style: TextStyle(color: Colors.orange, fontSize: 12)),

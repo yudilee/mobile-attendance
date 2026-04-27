@@ -198,16 +198,16 @@ class _PunchTabState extends ConsumerState<PunchTab> {
                           }
                           return Column(
                             children: punchTypes.map((pt) {
-                              final isOut = pt.punchType.toLowerCase().contains('out');
+                              final isOut = pt.code.toLowerCase().contains('out');
                               final color = isOut ? Colors.red.shade600 : Theme.of(context).colorScheme.primary;
                               final icon = isOut ? Icons.logout_rounded : Icons.login_rounded;
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 16),
                                 child: _PunchButton(
-                                  label: pt.punchType.toUpperCase(),
+                                  label: pt.label.toUpperCase(),
                                   icon: icon,
                                   color: color,
-                                  onPressed: () => punchNotifier.performPunch(_employeeId, pt.punchType),
+                                  onPressed: () => punchNotifier.performPunch(_employeeId, pt.code),
                                 ),
                               );
                             }).toList(),
