@@ -216,6 +216,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : const Text('Register to Middleware', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 ),
               ),
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    try {
+                      final api = ApiService();
+                      final status = await api.checkAppStatus();
+                      if (mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Text('App Status'),
+                            content: Text(status['message'] ?? 'Status: ${status['status']}\nMin Version: ${status['min_version']}'),
+                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to check updates'), backgroundColor: Colors.red));
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.system_update_alt),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    side: const BorderSide(color: Color(0xFF009CA6)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  label: const Text('Check for Updates', style: TextStyle(color: Color(0xFF009CA6))),
+                ),
+              ),
             ],
           ),
         ),

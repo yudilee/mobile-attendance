@@ -134,4 +134,16 @@ class ApiService {
       e.type == DioExceptionType.receiveTimeout ||
       e.type == DioExceptionType.connectionError ||
       e.type == DioExceptionType.unknown;
+
+  /// Checks the required app version from the server.
+  Future<Map<String, dynamic>> checkAppStatus() async {
+    try {
+      final dio = await _getDio();
+      final response = await dio.get('/api/v1/app-status');
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      _logger.e('Failed to check app status: $e');
+      return {'status': 'error'};
+    }
+  }
 }
