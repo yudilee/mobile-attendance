@@ -207,6 +207,15 @@ final deviceConfigProvider = FutureProvider<Map<String, dynamic>>((ref) async {
     );
     // Cache config for offline use
     await offlineSync.cacheConfig(config);
+    
+    // Also fetch and cache punch types
+    try {
+      final punchTypes = await api.getPunchTypes();
+      await offlineSync.cachePunchTypes(punchTypes);
+    } catch (e) {
+      // Ignore punch types fetch failure to not break config flow
+    }
+    
     return config;
   } catch (_) {
     // Network failed — try cached config
