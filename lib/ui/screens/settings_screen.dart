@@ -12,7 +12,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _employeeIdCtrl = TextEditingController();
   final _serverUrlCtrl = TextEditingController();
   final _apiKeyCtrl = TextEditingController();
   final _deviceLabelCtrl = TextEditingController();
@@ -28,7 +27,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    _employeeIdCtrl.text = await AppSettings.getEmployeeId();
     _serverUrlCtrl.text = await AppSettings.getServerUrl();
     _apiKeyCtrl.text = await AppSettings.getApiKey();
     _deviceLabelCtrl.text = await AppSettings.getDeviceLabel();
@@ -38,7 +36,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _save({bool silent = false}) async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    await AppSettings.setEmployeeId(_employeeIdCtrl.text);
     await AppSettings.setServerUrl(_serverUrlCtrl.text);
     await AppSettings.setApiKey(_apiKeyCtrl.text);
     await AppSettings.setDeviceLabel(_deviceLabelCtrl.text);
@@ -60,7 +57,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final security = SecurityService();
       final uuid = await security.getDeviceUniqueId();
       final result = await api.getDeviceConfig(
-        employeeId: _employeeIdCtrl.text,
         deviceUuid: uuid,
         deviceLabel: _deviceLabelCtrl.text.isNotEmpty ? _deviceLabelCtrl.text : null,
       );
@@ -100,7 +96,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _employeeIdCtrl.dispose();
     _serverUrlCtrl.dispose();
     _apiKeyCtrl.dispose();
     _deviceLabelCtrl.dispose();
@@ -124,15 +119,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _SectionHeader(title: '👤 Identity', subtitle: 'Your employee identifier'),
+              _SectionHeader(title: '👤 Identity', subtitle: 'Identify your phone for registration'),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _employeeIdCtrl,
-                decoration: _inputDecoration('Employee ID', Icons.badge_outlined),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                textCapitalization: TextCapitalization.characters,
-              ),
-              const SizedBox(height: 16),
               TextFormField(
                 controller: _deviceLabelCtrl,
                 decoration: _inputDecoration('Device Label (optional)', Icons.smartphone_outlined)

@@ -30,7 +30,7 @@ class ApiService {
 
   /// Submit a single attendance punch.
   Future<Map<String, dynamic>> submitPunch({
-    required String employeeId,
+    String? employeeId,
     required String deviceUuid,
     required double lat,
     required double lon,
@@ -46,7 +46,7 @@ class ApiService {
     try {
       _logger.i('Submitting punch: $punchType for $employeeId');
       final response = await dio.post('/api/v1/punch', data: {
-        'employee_id': employeeId,
+        if (employeeId != null) 'employee_id': employeeId,
         'device_uuid': deviceUuid,
         'latitude': lat,
         'longitude': lon,
@@ -96,14 +96,14 @@ class ApiService {
 
   /// Fetch branch assignment and geofence config for this device.
   Future<Map<String, dynamic>> getDeviceConfig({
-    required String employeeId,
+    String? employeeId,
     required String deviceUuid,
     String? deviceLabel,
   }) async {
     final dio = await _getDio();
     try {
       final response = await dio.get('/api/v1/device-config', queryParameters: {
-        'employee_id': employeeId,
+        if (employeeId != null) 'employee_id': employeeId,
         'device_uuid': deviceUuid,
         if (deviceLabel != null) 'device_label': deviceLabel,
       });
