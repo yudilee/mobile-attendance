@@ -480,6 +480,9 @@ class _StatusFeedback extends StatelessWidget {
     if (state.status == PunchStatus.idle) return const SizedBox.shrink();
 
     final isSuccess = state.status == PunchStatus.success;
+    final isOffline = state.status == PunchStatus.offline;
+    final isError = state.status == PunchStatus.error;
+    
     String displayTime = '';
     if (isSuccess && state.result?['server_time'] != null) {
       try {
@@ -497,28 +500,45 @@ class _StatusFeedback extends StatelessWidget {
       }
     }
 
+    Color bgColor = Colors.red.shade50;
+    Color borderColor = Colors.red;
+    Color textColor = Colors.red.shade900;
+    IconData icon = Icons.error;
+    String mainText = 'Error: ${state.errorMessage}';
+
+    if (isSuccess) {
+      bgColor = Colors.green.shade50;
+      borderColor = Colors.green;
+      textColor = Colors.green.shade900;
+      icon = Icons.check_circle;
+      mainText = 'Attendance Recorded ✅';
+    } else if (isOffline) {
+      bgColor = Colors.orange.shade50;
+      borderColor = Colors.orange;
+      textColor = Colors.orange.shade900;
+      icon = Icons.cloud_done;
+      mainText = state.result?['message'] ?? 'Saved offline. Will sync later.';
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isSuccess ? Colors.green.shade50 : Colors.red.shade50,
+        color: bgColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isSuccess ? Colors.green : Colors.red),
+        border: Border.all(color: borderColor),
       ),
       child: Row(
         children: [
-          Icon(
-            isSuccess ? Icons.check_circle : Icons.error,
-            color: isSuccess ? Colors.green : Colors.red,
-          ),
+          Icon(icon, color: borderColor),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isSuccess ? 'Attendance Recorded ✅' : 'Error: ${state.errorMessage}',
+                  mainText,
                   style: TextStyle(
-                    color: isSuccess ? Colors.green.shade900 : Colors.red.shade900,
+                    color: textColor,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
