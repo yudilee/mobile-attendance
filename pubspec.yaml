@@ -19,12 +19,24 @@ dependencies:
   google_fonts: ^6.2.1
   shared_preferences: ^2.3.0
   connectivity_plus: ^5.0.0
+  # Offline DB (replaces SharedPreferences for punch queue)
+  drift: ^2.20.0
+  sqlite3_flutter_libs: ^0.5.0
+  path_provider: ^2.1.0
+  path: ^1.9.0
+  # Secure storage for API key
+  flutter_secure_storage: ^9.2.2
+  # Idempotency UUIDs for offline punches
+  uuid: ^4.4.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.14.4
+  # Drift code generation
+  drift_dev: ^2.20.0
+  build_runner: ^2.4.0
 
 flutter_launcher_icons:
   android: "launcher_icon"

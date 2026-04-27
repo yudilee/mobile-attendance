@@ -22,12 +22,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     _loadEmployeeId();
     _requestPermissionsOnStartup();
-    
-    // Start background sync listener
-    Future.microtask(() {
-      ref.read(networkSyncProvider).listenToNetworkChanges();
-      ref.read(networkSyncProvider).syncOfflinePunches(); // Sync on startup in case offline punches exist
-    });
+    // Start background sync manager (periodic timer + connectivity listener)
+    Future.microtask(() => ref.read(networkSyncProvider).start());
   }
 
   /// Request location permission upfront so Android shows the dialog
@@ -76,6 +72,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         backgroundColor: const Color(0xFF009CA6),
         foregroundColor: Colors.white,
         actions: [
+          // Pending punch count badge
+          ref.watch(pendingPunchCountProvider).when(
+            data: (count) => count > 0
+              ? Stack(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.cloud_off),
+                      tooltip: '$count punch(es) pending sync',
+                      onPressed: () => ref.read(networkSyncProvider).syncOfflinePunches(),
+                    ),
+                    Positioned(
+                      right: 6, top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                        child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                )
+              : const SizedBox.shrink(),
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Status',
@@ -98,7 +118,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
                 isConfigured: _isConfigured,
                 onSetupTap: _openSettings,
-                branchName: config['status'] == 'assigned' ? config['branch_name'] : null,
+                branchName: config['status'] == 'active' ? config['branch_name'] : null,
               ),
               loading: () => _HeaderWidget(
                 employeeId: _employeeId,
@@ -119,8 +139,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               _NotConfiguredCard(onSetupTap: _openSettings)
             else if (deviceConfig.isLoading && !deviceConfig.hasValue && !deviceConfig.hasError) 
               const Center(child: CircularProgressIndicator(color: Color(0xFF009CA6)))
-            else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending')
-              _PendingAssignmentCard()
+            else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending_approval')
+              _PendingAssignmentCard(message: deviceConfig.value?['message'] ?? 'Waiting for admin approval. Contact HR.')
+            else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending_branch')
+              _PendingAssignmentCard(message: deviceConfig.value?['message'] ?? 'Approved! Waiting for branch assignment.')
             else
               Builder(
                 builder: (context) {
@@ -278,6 +300,9 @@ class _HeaderWidget extends StatelessWidget {
 }
 
 class _PendingAssignmentCard extends StatelessWidget {
+  final String message;
+  const _PendingAssignmentCard({this.message = 'Your device is registered but not yet set up.'});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -291,23 +316,13 @@ class _PendingAssignmentCard extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.amber.shade100,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: Colors.amber.shade100, shape: BoxShape.circle),
             child: const Icon(Icons.app_registration_rounded, size: 40, color: Colors.amber),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Device Not Assigned',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.brown),
-          ),
+          const Text('Device Not Ready', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.brown)),
           const SizedBox(height: 8),
-          const Text(
-            'Your device is registered, but hasn\'t been assigned to a branch yet.\n\nPlease contact your HR Administrator.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.brown, height: 1.4),
-          ),
+          Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.brown, height: 1.4)),
         ],
       ),
     );

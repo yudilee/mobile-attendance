@@ -15,9 +15,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _employeeIdCtrl = TextEditingController();
   final _serverUrlCtrl = TextEditingController();
   final _apiKeyCtrl = TextEditingController();
+  final _deviceLabelCtrl = TextEditingController();
   bool _saving = false;
   bool _registering = false;
   bool _obscureKey = true;
+  String _registrationStatus = '';
 
   @override
   void initState() {
@@ -29,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _employeeIdCtrl.text = await AppSettings.getEmployeeId();
     _serverUrlCtrl.text = await AppSettings.getServerUrl();
     _apiKeyCtrl.text = await AppSettings.getApiKey();
+    _deviceLabelCtrl.text = await AppSettings.getDeviceLabel();
     setState(() {});
   }
 
@@ -38,39 +41,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await AppSettings.setEmployeeId(_employeeIdCtrl.text);
     await AppSettings.setServerUrl(_serverUrlCtrl.text);
     await AppSettings.setApiKey(_apiKeyCtrl.text);
+    await AppSettings.setDeviceLabel(_deviceLabelCtrl.text);
     setState(() => _saving = false);
     if (!silent && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Settings saved!'),
-          backgroundColor: Colors.green,
-        ),
+        const SnackBar(content: Text('Settings saved!'), backgroundColor: Colors.green),
       );
-      Navigator.of(context).pop(true); // Return true to trigger reload
+      Navigator.of(context).pop(true);
     }
   }
 
   Future<void> _registerDevice() async {
     if (!_formKey.currentState!.validate()) return;
-    
-    // Save settings locally first so ApiService uses them
     await _save(silent: true);
-    
-    setState(() => _registering = true);
+    setState(() { _registering = true; _registrationStatus = ''; });
     try {
       final api = ApiService();
       final security = SecurityService();
       final uuid = await security.getDeviceUniqueId();
-      final employeeId = _employeeIdCtrl.text;
-      
-      await api.getDeviceConfig(employeeId: employeeId, deviceUuid: uuid);
-      
+      final result = await api.getDeviceConfig(
+        employeeId: _employeeIdCtrl.text,
+        deviceUuid: uuid,
+        deviceLabel: _deviceLabelCtrl.text.isNotEmpty ? _deviceLabelCtrl.text : null,
+      );
+      final status = result['status'] as String? ?? '';
+      setState(() => _registrationStatus = status);
       if (mounted) {
+        String msg;
+        Color color;
+        if (status == 'pending_approval') {
+          msg = '⏳ Device registered! Waiting for admin approval.';
+          color = Colors.orange;
+        } else if (status == 'active') {
+          msg = '✅ Device active and assigned to branch!';
+          color = Colors.green;
+        } else if (status == 'pending_branch') {
+          msg = '✅ Approved! Waiting for branch assignment.';
+          color = Colors.blue;
+        } else {
+          msg = 'Status: $status';
+          color = Colors.grey;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device registered successfully!'), backgroundColor: Colors.green),
+          SnackBar(content: Text(msg), backgroundColor: color, duration: const Duration(seconds: 5)),
         );
       }
     } catch (e) {
+      setState(() => _registrationStatus = 'error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Registration failed: $e'), backgroundColor: Colors.red),
@@ -86,6 +103,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _employeeIdCtrl.dispose();
     _serverUrlCtrl.dispose();
     _apiKeyCtrl.dispose();
+    _deviceLabelCtrl.dispose();
     super.dispose();
   }
 
@@ -114,6 +132,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                 textCapitalization: TextCapitalization.characters,
               ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _deviceLabelCtrl,
+                decoration: _inputDecoration('Device Label (optional)', Icons.smartphone_outlined)
+                    .copyWith(hintText: 'e.g. John\'s Samsung A55'),
+              ),
+              if (_registrationStatus == 'pending_approval') ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade300),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.hourglass_top, color: Colors.orange, size: 16),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('Pending admin approval. Contact your HR administrator.', style: TextStyle(fontSize: 12, color: Colors.orange))),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 28),
               _SectionHeader(title: '🌐 Server', subtitle: 'Middleware aggregator address'),
               const SizedBox(height: 12),
