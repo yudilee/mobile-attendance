@@ -80,7 +80,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
     final deviceConfig = ref.watch(deviceConfigProvider);
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
         title: const Text('Punch'),
         actions: [
@@ -115,7 +115,12 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
           ),
         ],
       ),
-      body: Container(
+      body: Column(
+        children: [
+          // Sync progress bar
+          _SyncBar(syncState: ref.watch(syncStateProvider)),
+          Expanded(
+            child: Container(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -236,7 +241,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                             }).toList(),
                           );
                         },
-                        loading: () => const CircularProgressIndicator(),
+                        loading: () => const CircularProgressIndicator(color: Color(0xFF009CA6)),
                         error: (_, __) => const SizedBox.shrink(),
                       ),
                       const SizedBox(height: 8),
@@ -250,7 +255,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         icon: const Icon(Icons.sync),
                         label: const Text('Sync Offline Data'),
                         style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary),
-                      )
+                      ),
                     ],
                   );
                 },
@@ -263,6 +268,73 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
             ),
           ],
         ),
+      ),
+          ), // Expanded
+        ], // Column children
+      ), // Column
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SyncBar extends StatelessWidget {
+  final SyncState syncState;
+  const _SyncBar({required this.syncState});
+
+  @override
+  Widget build(BuildContext context) {
+    if (syncState.status == SyncStatus.idle && syncState.pendingCount == 0) {
+      return const SizedBox.shrink();
+    }
+
+    final String text;
+    final Color color;
+    final bool showProgress;
+
+    switch (syncState.status) {
+      case SyncStatus.syncing:
+        text = 'Syncing... ${syncState.pendingCount} remaining';
+        color = Colors.blue;
+        showProgress = true;
+      case SyncStatus.allSynced:
+        text = 'All punches synced';
+        color = Colors.green;
+        showProgress = false;
+      case SyncStatus.error:
+        text = syncState.lastError ?? 'Sync error';
+        color = Colors.red;
+        showProgress = false;
+      default:
+        text = '${syncState.pendingCount} punch(es) waiting to sync';
+        color = Colors.orange;
+        showProgress = false;
+    }
+
+    return Container(
+      height: 28,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        border: Border(bottom: BorderSide(color: color.withOpacity(0.3))),
+      ),
+      child: Row(
+        children: [
+          if (showProgress)
+            Padding(
+              padding: const EdgeInsets.only(left: 12, right: 8),
+              child: SizedBox(
+                width: 12, height: 12,
+                child: CircularProgressIndicator(strokeWidth: 2, color: color),
+              ),
+            ),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
       ),
     );
   }

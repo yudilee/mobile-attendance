@@ -16,8 +16,7 @@ class AppTheme {
         seedColor: primaryTeal,
         primary: primaryTeal,
         secondary: secondaryCoral,
-        background: backgroundLight,
-        surface: surfaceColor,
+        surface: backgroundLight,
       ),
       scaffoldBackgroundColor: backgroundLight,
       textTheme: GoogleFonts.outfitTextTheme().apply(
