@@ -58,6 +58,9 @@ class PunchNotifier extends StateNotifier<PunchState> {
   Future<void> performPunch(String employeeId, String punchType) async {
     state = PunchState(status: PunchStatus.loading);
 
+    // Declared here so the NetworkException handler can reuse them
+    Map<String, dynamic>? punchPayload;
+
     try {
       // ── Step A: Biometric / device auth ──────────────────────────────────
       final authResult = await _security.authenticateWithDevice();
@@ -84,10 +87,8 @@ class PunchNotifier extends StateNotifier<PunchState> {
       final timeResult = await _security.getReliableTimestamp(gpsPosition: position);
 
       // ── Step E: Generate idempotency ID & build payload ───────────────────
-      // CRITICAL: Build the full payload BEFORE calling the API.
-      // If the network call fails, we save THIS exact data — not re-fetched data.
       final clientPunchId = OfflineSyncService.generatePunchId();
-      final punchPayload = {
+      punchPayload = {
         'employee_id': employeeId,
         'device_uuid': uuid,
         'latitude': position.latitude,
@@ -118,53 +119,28 @@ class PunchNotifier extends StateNotifier<PunchState> {
 
       state = PunchState(status: PunchStatus.success, result: response);
     } on NetworkException {
-      // ── Step F (offline): Save original payload to Drift queue ───────────
-      // We already have punchPayload and clientPunchId from above.
-      // This is the FIXED version — we don't re-fetch GPS or time here.
-      // The data saved is the exact data from the moment the user tapped punch.
-      //
-      // Note: If auth/GPS fails before we reach here, we throw normally
-      // (those errors are user-facing, not network errors).
-      //
-      // If we reach this catch, punchPayload may not be defined yet (edge case:
-      // network error during initial security steps). We handle that safely below.
-      try {
-        // Re-derive what we can from earlier in the flow
-        final uuid = await _security.getDeviceUniqueId();
-        final position = await _security.getCurrentValidatedLocation();
-        if (position == null || position.isMocked) {
-          throw Exception('Cannot save offline punch: location unavailable.');
+      if (punchPayload != null) {
+        // Reuse the exact payload captured at punch moment — no re-fetching
+        try {
+          await _offlineSync.saveOfflinePunch(
+            punchPayload,
+            clientPunchId: punchPayload['client_punch_id'] as String,
+          );
+          state = PunchState(
+            status: PunchStatus.offline,
+            savedOffline: true,
+            result: {'message': 'Saved offline. Will sync when connection is restored.'},
+          );
+        } catch (saveError) {
+          state = PunchState(
+            status: PunchStatus.error,
+            errorMessage: 'Network error and could not save offline: $saveError',
+          );
         }
-        final timeResult = await _security.getReliableTimestamp(gpsPosition: position);
-        final clientPunchId = OfflineSyncService.generatePunchId();
-
-        final offlinePayload = {
-          'employee_id': employeeId,
-          'device_uuid': uuid,
-          'latitude': position.latitude,
-          'longitude': position.longitude,
-          'is_mock_location': position.isMocked,
-          'biometric_verified': true,
-          'punch_type': punchType,
-          'timestamp': timeResult.isoString,
-          'tz_offset_minutes': timeResult.tzOffsetMinutes,
-          'gps_time_validated': timeResult.gpsValidated,
-        };
-
-        await _offlineSync.saveOfflinePunch(
-          offlinePayload,
-          clientPunchId: clientPunchId,
-        );
-
-        state = PunchState(
-          status: PunchStatus.offline,
-          savedOffline: true,
-          result: {'message': 'Saved offline. Will sync when connection is restored.'},
-        );
-      } catch (saveError) {
+      } else {
         state = PunchState(
           status: PunchStatus.error,
-          errorMessage: 'Network error and could not save offline: $saveError',
+          errorMessage: 'Network unavailable. Please try again.',
         );
       }
     } catch (e) {
@@ -221,12 +197,16 @@ final deviceConfigProvider = FutureProvider<Map<String, dynamic>>((ref) async {
     // Network failed — try cached config
     final cached = await offlineSync.getCachedConfig();
     if (cached != null) {
+      final branches = await offlineSync.getCachedBranches();
       return {
         'status': cached.registrationStatus,
+        'branches': branches,
         'branch_name': cached.branchName,
         'latitude': cached.latitude,
         'longitude': cached.longitude,
         'radius_meters': cached.radiusMeters,
+        'device_count': branches.isNotEmpty ? 1 : 0,
+        'max_devices': 5,
         '_cached': true,
         '_cached_at': cached.cachedAt.toIso8601String(),
       };

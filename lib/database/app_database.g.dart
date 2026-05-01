@@ -1333,6 +1333,14 @@ class $CachedConfigTable extends CachedConfig
   late final GeneratedColumn<double> radiusMeters = GeneratedColumn<double>(
       'radius_meters', aliasedName, false,
       type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _branchesJsonMeta =
+      const VerificationMeta('branchesJson');
+  @override
+  late final GeneratedColumn<String> branchesJson = GeneratedColumn<String>(
+      'branches_json', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('[]'));
   static const VerificationMeta _registrationStatusMeta =
       const VerificationMeta('registrationStatus');
   @override
@@ -1356,6 +1364,7 @@ class $CachedConfigTable extends CachedConfig
         latitude,
         longitude,
         radiusMeters,
+        branchesJson,
         registrationStatus,
         cachedAt
       ];
@@ -1400,6 +1409,12 @@ class $CachedConfigTable extends CachedConfig
     } else if (isInserting) {
       context.missing(_radiusMetersMeta);
     }
+    if (data.containsKey('branches_json')) {
+      context.handle(
+          _branchesJsonMeta,
+          branchesJson.isAcceptableOrUnknown(
+              data['branches_json']!, _branchesJsonMeta));
+    }
     if (data.containsKey('registration_status')) {
       context.handle(
           _registrationStatusMeta,
@@ -1429,6 +1444,8 @@ class $CachedConfigTable extends CachedConfig
           .read(DriftSqlType.double, data['${effectivePrefix}longitude'])!,
       radiusMeters: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}radius_meters'])!,
+      branchesJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}branches_json'])!,
       registrationStatus: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}registration_status'])!,
       cachedAt: attachedDatabase.typeMapping
@@ -1449,6 +1466,7 @@ class CachedConfigData extends DataClass
   final double latitude;
   final double longitude;
   final double radiusMeters;
+  final String branchesJson;
   final String registrationStatus;
   final DateTime cachedAt;
   const CachedConfigData(
@@ -1457,6 +1475,7 @@ class CachedConfigData extends DataClass
       required this.latitude,
       required this.longitude,
       required this.radiusMeters,
+      required this.branchesJson,
       required this.registrationStatus,
       required this.cachedAt});
   @override
@@ -1467,6 +1486,7 @@ class CachedConfigData extends DataClass
     map['latitude'] = Variable<double>(latitude);
     map['longitude'] = Variable<double>(longitude);
     map['radius_meters'] = Variable<double>(radiusMeters);
+    map['branches_json'] = Variable<String>(branchesJson);
     map['registration_status'] = Variable<String>(registrationStatus);
     map['cached_at'] = Variable<DateTime>(cachedAt);
     return map;
@@ -1479,6 +1499,7 @@ class CachedConfigData extends DataClass
       latitude: Value(latitude),
       longitude: Value(longitude),
       radiusMeters: Value(radiusMeters),
+      branchesJson: Value(branchesJson),
       registrationStatus: Value(registrationStatus),
       cachedAt: Value(cachedAt),
     );
@@ -1493,6 +1514,7 @@ class CachedConfigData extends DataClass
       latitude: serializer.fromJson<double>(json['latitude']),
       longitude: serializer.fromJson<double>(json['longitude']),
       radiusMeters: serializer.fromJson<double>(json['radiusMeters']),
+      branchesJson: serializer.fromJson<String>(json['branchesJson']),
       registrationStatus:
           serializer.fromJson<String>(json['registrationStatus']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
@@ -1507,6 +1529,7 @@ class CachedConfigData extends DataClass
       'latitude': serializer.toJson<double>(latitude),
       'longitude': serializer.toJson<double>(longitude),
       'radiusMeters': serializer.toJson<double>(radiusMeters),
+      'branchesJson': serializer.toJson<String>(branchesJson),
       'registrationStatus': serializer.toJson<String>(registrationStatus),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
     };
@@ -1518,6 +1541,7 @@ class CachedConfigData extends DataClass
           double? latitude,
           double? longitude,
           double? radiusMeters,
+          String? branchesJson,
           String? registrationStatus,
           DateTime? cachedAt}) =>
       CachedConfigData(
@@ -1526,6 +1550,7 @@ class CachedConfigData extends DataClass
         latitude: latitude ?? this.latitude,
         longitude: longitude ?? this.longitude,
         radiusMeters: radiusMeters ?? this.radiusMeters,
+        branchesJson: branchesJson ?? this.branchesJson,
         registrationStatus: registrationStatus ?? this.registrationStatus,
         cachedAt: cachedAt ?? this.cachedAt,
       );
@@ -1539,6 +1564,9 @@ class CachedConfigData extends DataClass
       radiusMeters: data.radiusMeters.present
           ? data.radiusMeters.value
           : this.radiusMeters,
+      branchesJson: data.branchesJson.present
+          ? data.branchesJson.value
+          : this.branchesJson,
       registrationStatus: data.registrationStatus.present
           ? data.registrationStatus.value
           : this.registrationStatus,
@@ -1554,6 +1582,7 @@ class CachedConfigData extends DataClass
           ..write('latitude: $latitude, ')
           ..write('longitude: $longitude, ')
           ..write('radiusMeters: $radiusMeters, ')
+          ..write('branchesJson: $branchesJson, ')
           ..write('registrationStatus: $registrationStatus, ')
           ..write('cachedAt: $cachedAt')
           ..write(')'))
@@ -1562,7 +1591,7 @@ class CachedConfigData extends DataClass
 
   @override
   int get hashCode => Object.hash(id, branchName, latitude, longitude,
-      radiusMeters, registrationStatus, cachedAt);
+      radiusMeters, branchesJson, registrationStatus, cachedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1572,6 +1601,7 @@ class CachedConfigData extends DataClass
           other.latitude == this.latitude &&
           other.longitude == this.longitude &&
           other.radiusMeters == this.radiusMeters &&
+          other.branchesJson == this.branchesJson &&
           other.registrationStatus == this.registrationStatus &&
           other.cachedAt == this.cachedAt);
 }
@@ -1582,6 +1612,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
   final Value<double> latitude;
   final Value<double> longitude;
   final Value<double> radiusMeters;
+  final Value<String> branchesJson;
   final Value<String> registrationStatus;
   final Value<DateTime> cachedAt;
   const CachedConfigCompanion({
@@ -1590,6 +1621,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
     this.latitude = const Value.absent(),
     this.longitude = const Value.absent(),
     this.radiusMeters = const Value.absent(),
+    this.branchesJson = const Value.absent(),
     this.registrationStatus = const Value.absent(),
     this.cachedAt = const Value.absent(),
   });
@@ -1599,6 +1631,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
     required double latitude,
     required double longitude,
     required double radiusMeters,
+    this.branchesJson = const Value.absent(),
     this.registrationStatus = const Value.absent(),
     this.cachedAt = const Value.absent(),
   })  : branchName = Value(branchName),
@@ -1611,6 +1644,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
     Expression<double>? latitude,
     Expression<double>? longitude,
     Expression<double>? radiusMeters,
+    Expression<String>? branchesJson,
     Expression<String>? registrationStatus,
     Expression<DateTime>? cachedAt,
   }) {
@@ -1620,6 +1654,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (radiusMeters != null) 'radius_meters': radiusMeters,
+      if (branchesJson != null) 'branches_json': branchesJson,
       if (registrationStatus != null) 'registration_status': registrationStatus,
       if (cachedAt != null) 'cached_at': cachedAt,
     });
@@ -1631,6 +1666,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
       Value<double>? latitude,
       Value<double>? longitude,
       Value<double>? radiusMeters,
+      Value<String>? branchesJson,
       Value<String>? registrationStatus,
       Value<DateTime>? cachedAt}) {
     return CachedConfigCompanion(
@@ -1639,6 +1675,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       radiusMeters: radiusMeters ?? this.radiusMeters,
+      branchesJson: branchesJson ?? this.branchesJson,
       registrationStatus: registrationStatus ?? this.registrationStatus,
       cachedAt: cachedAt ?? this.cachedAt,
     );
@@ -1662,6 +1699,9 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
     if (radiusMeters.present) {
       map['radius_meters'] = Variable<double>(radiusMeters.value);
     }
+    if (branchesJson.present) {
+      map['branches_json'] = Variable<String>(branchesJson.value);
+    }
     if (registrationStatus.present) {
       map['registration_status'] = Variable<String>(registrationStatus.value);
     }
@@ -1679,6 +1719,7 @@ class CachedConfigCompanion extends UpdateCompanion<CachedConfigData> {
           ..write('latitude: $latitude, ')
           ..write('longitude: $longitude, ')
           ..write('radiusMeters: $radiusMeters, ')
+          ..write('branchesJson: $branchesJson, ')
           ..write('registrationStatus: $registrationStatus, ')
           ..write('cachedAt: $cachedAt')
           ..write(')'))
@@ -2672,6 +2713,7 @@ typedef $$CachedConfigTableCreateCompanionBuilder = CachedConfigCompanion
   required double latitude,
   required double longitude,
   required double radiusMeters,
+  Value<String> branchesJson,
   Value<String> registrationStatus,
   Value<DateTime> cachedAt,
 });
@@ -2682,6 +2724,7 @@ typedef $$CachedConfigTableUpdateCompanionBuilder = CachedConfigCompanion
   Value<double> latitude,
   Value<double> longitude,
   Value<double> radiusMeters,
+  Value<String> branchesJson,
   Value<String> registrationStatus,
   Value<DateTime> cachedAt,
 });
@@ -2709,6 +2752,9 @@ class $$CachedConfigTableFilterComposer
 
   ColumnFilters<double> get radiusMeters => $composableBuilder(
       column: $table.radiusMeters, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get branchesJson => $composableBuilder(
+      column: $table.branchesJson, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get registrationStatus => $composableBuilder(
       column: $table.registrationStatus,
@@ -2743,6 +2789,10 @@ class $$CachedConfigTableOrderingComposer
       column: $table.radiusMeters,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get branchesJson => $composableBuilder(
+      column: $table.branchesJson,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get registrationStatus => $composableBuilder(
       column: $table.registrationStatus,
       builder: (column) => ColumnOrderings(column));
@@ -2774,6 +2824,9 @@ class $$CachedConfigTableAnnotationComposer
 
   GeneratedColumn<double> get radiusMeters => $composableBuilder(
       column: $table.radiusMeters, builder: (column) => column);
+
+  GeneratedColumn<String> get branchesJson => $composableBuilder(
+      column: $table.branchesJson, builder: (column) => column);
 
   GeneratedColumn<String> get registrationStatus => $composableBuilder(
       column: $table.registrationStatus, builder: (column) => column);
@@ -2813,6 +2866,7 @@ class $$CachedConfigTableTableManager extends RootTableManager<
             Value<double> latitude = const Value.absent(),
             Value<double> longitude = const Value.absent(),
             Value<double> radiusMeters = const Value.absent(),
+            Value<String> branchesJson = const Value.absent(),
             Value<String> registrationStatus = const Value.absent(),
             Value<DateTime> cachedAt = const Value.absent(),
           }) =>
@@ -2822,6 +2876,7 @@ class $$CachedConfigTableTableManager extends RootTableManager<
             latitude: latitude,
             longitude: longitude,
             radiusMeters: radiusMeters,
+            branchesJson: branchesJson,
             registrationStatus: registrationStatus,
             cachedAt: cachedAt,
           ),
@@ -2831,6 +2886,7 @@ class $$CachedConfigTableTableManager extends RootTableManager<
             required double latitude,
             required double longitude,
             required double radiusMeters,
+            Value<String> branchesJson = const Value.absent(),
             Value<String> registrationStatus = const Value.absent(),
             Value<DateTime> cachedAt = const Value.absent(),
           }) =>
@@ -2840,6 +2896,7 @@ class $$CachedConfigTableTableManager extends RootTableManager<
             latitude: latitude,
             longitude: longitude,
             radiusMeters: radiusMeters,
+            branchesJson: branchesJson,
             registrationStatus: registrationStatus,
             cachedAt: cachedAt,
           ),

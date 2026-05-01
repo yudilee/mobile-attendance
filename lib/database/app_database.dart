@@ -48,14 +48,16 @@ class PunchHistory extends Table {
 }
 
 /// Cached branch/geofence config so the app works offline.
+/// Stores all branches as a JSON array for multi-branch support.
 class CachedConfig extends Table {
   IntColumn get id => integer().autoIncrement()();
-  TextColumn get branchName => text()();
-  RealColumn get latitude => real()();
-  RealColumn get longitude => real()();
+  TextColumn get branchName => text()();                       // Primary branch name (or "Multiple")
+  RealColumn get latitude => real()();                         // Primary branch lat
+  RealColumn get longitude => real()();                        // Primary branch lon
   RealColumn get radiusMeters => real()();
+  TextColumn get branchesJson => text().withDefault(const Constant('[]'))(); // Full branch list as JSON
   TextColumn get registrationStatus => text().withDefault(const Constant('pending'))();
-  // pending_approval | pending_branch | active | suspended
+  // pending_approval | pending_branch | active | suspended | max_devices_reached
   DateTimeColumn get cachedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -77,7 +79,21 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration {
+    return MigrationStrategy(
+      onCreate: (m) async {
+        await m.createAll();
+      },
+      onUpgrade: (m, from, to) async {
+        if (from < 2) {
+          await m.addColumn(cachedConfig, cachedConfig.branchesJson);
+        }
+      },
+    );
+  }
 
   // ── Offline Punch Queue ────────────────────────────────────────────────────
 
@@ -128,6 +144,14 @@ class AppDatabase extends _$AppDatabase {
             // Note: handled in service layer for simplicity
             0, // placeholder; service layer reads current then increments
           ),
+          errorMessage: Value(error),
+        ),
+      );
+
+  Future<void> setPermanentFailure(int id, String error) =>
+      (update(offlinePunches)..where((p) => p.id.equals(id))).write(
+        OfflinePunchesCompanion(
+          syncStatus: const Value('failed_permanent'),
           errorMessage: Value(error),
         ),
       );

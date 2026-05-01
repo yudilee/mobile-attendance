@@ -15,10 +15,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _serverUrlCtrl = TextEditingController();
   final _apiKeyCtrl = TextEditingController();
   final _deviceLabelCtrl = TextEditingController();
-  bool _saving = false;
+
   bool _registering = false;
   bool _obscureKey = true;
-  String _registrationStatus = '';
+  bool _testingConnection = false;
+  bool? _connectionOk;
+  String _connectionError = '';
+
+  // Registration result (persistent card, not snackbar)
+  String _regStatus = '';
+  String _regMessage = '';
+  bool _regSuccess = false;
 
   @override
   void initState() {
@@ -33,25 +40,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {});
   }
 
-  Future<void> _save({bool silent = false}) async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _saving = true);
-    await AppSettings.setServerUrl(_serverUrlCtrl.text);
-    await AppSettings.setApiKey(_apiKeyCtrl.text);
-    await AppSettings.setDeviceLabel(_deviceLabelCtrl.text);
-    setState(() => _saving = false);
-    if (!silent && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Settings saved!'), backgroundColor: Colors.green),
-      );
-      Navigator.of(context).pop(true);
+  Future<void> _testConnection() async {
+    final url = _serverUrlCtrl.text.trim();
+    if (url.isEmpty) {
+      setState(() { _connectionOk = false; _connectionError = 'Enter a server URL first'; });
+      return;
+    }
+    setState(() { _testingConnection = true; _connectionOk = null; _connectionError = ''; });
+    try {
+      final api = ApiService();
+      await AppSettings.setServerUrl(url); // Temporarily save for the test
+      final status = await api.checkAppStatus();
+      if (status['status'] == 'ok' || status['status'] == 'error') {
+        // Both responses mean the server is reachable
+        setState(() => _connectionOk = true);
+      } else {
+        setState(() { _connectionOk = false; _connectionError = 'Unexpected response'; });
+      }
+    } catch (e) {
+      setState(() { _connectionOk = false; _connectionError = e.toString().replaceAll('Exception: ', ''); });
+    } finally {
+      if (mounted) setState(() => _testingConnection = false);
     }
   }
 
   Future<void> _registerDevice() async {
     if (!_formKey.currentState!.validate()) return;
-    await _save(silent: true);
-    setState(() { _registering = true; _registrationStatus = ''; });
+
+    setState(() { _registering = true; _regStatus = ''; _regMessage = ''; });
+
+    // Save all settings first
+    await AppSettings.setServerUrl(_serverUrlCtrl.text);
+    await AppSettings.setApiKey(_apiKeyCtrl.text);
+    await AppSettings.setDeviceLabel(_deviceLabelCtrl.text);
+
     try {
       final api = ApiService();
       final security = SecurityService();
@@ -61,34 +83,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
         deviceLabel: _deviceLabelCtrl.text.isNotEmpty ? _deviceLabelCtrl.text : null,
       );
       final status = result['status'] as String? ?? '';
-      setState(() => _registrationStatus = status);
-      if (mounted) {
-        String msg;
-        Color color;
-        if (status == 'pending_approval') {
-          msg = '⏳ Device registered! Waiting for admin approval.';
-          color = Colors.orange;
-        } else if (status == 'active') {
-          msg = '✅ Device active and assigned to branch!';
-          color = Colors.green;
-        } else if (status == 'pending_branch') {
-          msg = '✅ Approved! Waiting for branch assignment.';
-          color = Colors.blue;
-        } else {
-          msg = 'Status: $status';
-          color = Colors.grey;
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: color, duration: const Duration(seconds: 5)),
-        );
+      final branches = result['branches'] as List<dynamic>? ?? [];
+      final deviceCount = result['device_count'] as int? ?? 1;
+      final maxDevices = result['max_devices'] as int? ?? 5;
+
+      String message;
+      bool success;
+      if (status == 'active') {
+        message = 'Your device is active and assigned to ${branches.length} branch(es). You can now clock in.';
+        success = true;
+      } else if (status == 'pending_approval') {
+        message = 'Device registered! Waiting for admin approval.\nContact your HR administrator to approve this device.';
+        success = true;
+      } else if (status == 'pending_branch') {
+        message = 'Device approved! Waiting for admin to assign your branch location.';
+        success = true;
+      } else if (status == 'max_devices_reached') {
+        message = 'You have reached the maximum of $deviceCount/$maxDevices devices.\nPlease ask admin to remove an old device.';
+        success = false;
+      } else {
+        message = 'Status: $status';
+        success = true;
       }
+
+      setState(() {
+        _regStatus = status;
+        _regMessage = message;
+        _regSuccess = success;
+      });
     } catch (e) {
-      setState(() => _registrationStatus = 'error');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Registration failed: $e'), backgroundColor: Colors.red),
-        );
-      }
+      setState(() {
+        _regStatus = 'error';
+        _regMessage = 'Connection failed: ${e.toString().replaceAll('Exception: ', '')}';
+        _regSuccess = false;
+      });
     } finally {
       if (mounted) setState(() => _registering = false);
     }
@@ -107,106 +135,149 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('App Configuration'),
+        title: const Text('Device Setup'),
         backgroundColor: const Color(0xFF009CA6),
         foregroundColor: Colors.white,
         elevation: 0,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _SectionHeader(title: '👤 Identity', subtitle: 'Identify your phone for registration'),
+              // ── Step 1: Identity ─────────────────────────────────────────
+              _StepIndicator(step: 1, title: 'Device Identity', isActive: true),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _deviceLabelCtrl,
-                decoration: _inputDecoration('Device Label (optional)', Icons.smartphone_outlined)
-                    .copyWith(hintText: 'e.g. John\'s Samsung A55'),
+              _Card(
+                children: [
+                  TextFormField(
+                    controller: _deviceLabelCtrl,
+                    decoration: _inputDecoration('Device Label (optional)', Icons.smartphone_outlined)
+                        .copyWith(hintText: 'e.g. John\'s Samsung A55'),
+                  ),
+                ],
               ),
-              if (_registrationStatus == 'pending_approval') ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.amber.shade300),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.hourglass_top, color: Colors.orange, size: 16),
-                      SizedBox(width: 8),
-                      Expanded(child: Text('Pending admin approval. Contact your HR administrator.', style: TextStyle(fontSize: 12, color: Colors.orange))),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 28),
-              _SectionHeader(title: '🌐 Server', subtitle: 'Middleware aggregator address'),
+
+              const SizedBox(height: 24),
+
+              // ── Step 2: Server ───────────────────────────────────────────
+              _StepIndicator(step: 2, title: 'Server Connection', isActive: true),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _serverUrlCtrl,
-                decoration: _inputDecoration('Server URL', Icons.dns_outlined),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Required';
-                  if (!v.startsWith('http')) return 'Must start with http:// or https://';
-                  return null;
-                },
-                keyboardType: TextInputType.url,
+              _Card(
+                children: [
+                  TextFormField(
+                    controller: _serverUrlCtrl,
+                    decoration: _inputDecoration('Server URL', Icons.dns_outlined).copyWith(
+                      hintText: 'https://your-server.com',
+                      suffixIcon: _testingConnection
+                          ? const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
+                          : _connectionOk == null
+                              ? IconButton(
+                                  icon: const Icon(Icons.wifi_find, size: 20),
+                                  tooltip: 'Test Connection',
+                                  onPressed: _testConnection,
+                                )
+                              : IconButton(
+                                  icon: Icon(_connectionOk! ? Icons.check_circle : Icons.error, size: 20),
+                                  color: _connectionOk! ? Colors.green : Colors.red,
+                                  tooltip: _connectionOk! ? 'Connected' : _connectionError,
+                                  onPressed: _testConnection,
+                                ),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Required';
+                      if (!v.startsWith('http')) return 'Must start with http:// or https://';
+                      return null;
+                    },
+                    keyboardType: TextInputType.url,
+                  ),
+                  if (_connectionOk == false && _connectionError.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(_connectionError, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                  ],
+                ],
               ),
-              const SizedBox(height: 28),
-              _SectionHeader(title: '🔑 API Key', subtitle: 'From the dashboard Security tab'),
+
+              const SizedBox(height: 24),
+
+              // ── Step 3: API Key ──────────────────────────────────────────
+              _StepIndicator(step: 3, title: 'API Key', isActive: true),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _apiKeyCtrl,
-                obscureText: _obscureKey,
-                decoration: _inputDecoration('API Key', Icons.key_outlined).copyWith(
-                  suffixIcon: IconButton(
-                    icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _obscureKey = !_obscureKey),
+              _Card(
+                children: [
+                  TextFormField(
+                    controller: _apiKeyCtrl,
+                    obscureText: _obscureKey,
+                    decoration: _inputDecoration('API Key', Icons.key_outlined).copyWith(
+                      hintText: 'Paste key from admin dashboard',
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility, size: 20),
+                            onPressed: () => setState(() => _obscureKey = !_obscureKey),
+                            tooltip: _obscureKey ? 'Show key' : 'Hide key',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.content_paste, size: 18),
+                            onPressed: () async {
+                              // No-op: Android/iOS paste is native via long-press
+                            },
+                            tooltip: 'Long-press to paste',
+                          ),
+                        ],
+                      ),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                   ),
-                ),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ],
               ),
-              const SizedBox(height: 40),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF009CA6),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: _saving
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('Save Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                ),
-              ),
-              const SizedBox(height: 16),
+
+              const SizedBox(height: 32),
+
+              // ── Step 4: Register ─────────────────────────────────────────
+              _StepIndicator(step: 4, title: 'Register Device', isActive: true, subtitle: 'Sends device info to server for admin approval'),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: _registering || _saving ? null : _registerDevice,
-                  icon: const Icon(Icons.app_registration),
+                  onPressed: _registering ? null : _registerDevice,
+                  icon: _registering
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.app_registration),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange.shade700,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  label: _registering
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('Register to Middleware', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  label: Text(_registering ? 'Registering...' : 'Register to Server', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 ),
               ),
-              const SizedBox(height: 24),
+
+              // ── Registration Result Card ─────────────────────────────────
+              if (_regStatus.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _RegistrationResultCard(
+                  status: _regStatus,
+                  message: _regMessage,
+                  success: _regSuccess,
+                  onDismiss: () => setState(() { _regStatus = ''; _regMessage = ''; }),
+                ),
+              ],
+
+              const SizedBox(height: 32),
               const Divider(),
               const SizedBox(height: 16),
+
+              // ── Tools ────────────────────────────────────────────────────
+              _StepIndicator(step: 0, title: 'Tools', isActive: false),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -218,7 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         showDialog(
                           context: context,
                           builder: (_) => AlertDialog(
-                            title: const Text('App Status'),
+                            title: const Text('Server Status'),
                             content: Text(status['message'] ?? 'Status: ${status['status']}\nMin Version: ${status['min_version']}'),
                             actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
                           ),
@@ -226,7 +297,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }
                     } catch (e) {
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to check updates'), backgroundColor: Colors.red));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Server unreachable'), backgroundColor: Colors.red),
+                        );
                       }
                     }
                   },
@@ -236,9 +309,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     side: const BorderSide(color: Color(0xFF009CA6)),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  label: const Text('Check for Updates', style: TextStyle(color: Color(0xFF009CA6))),
+                  label: const Text('Check Server Status & Updates', style: TextStyle(color: Color(0xFF009CA6))),
                 ),
               ),
+
+              const SizedBox(height: 40),
             ],
           ),
         ),
@@ -257,23 +332,168 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       filled: true,
       fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  const _SectionHeader({required this.title, required this.subtitle});
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _Card extends StatelessWidget {
+  final List<Widget> children;
+  const _Card({required this.children});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Column(children: children),
+    );
+  }
+}
+
+class _StepIndicator extends StatelessWidget {
+  final int step;
+  final String title;
+  final String? subtitle;
+  final bool isActive;
+
+  const _StepIndicator({
+    required this.step,
+    required this.title,
+    this.subtitle,
+    this.isActive = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
       children: [
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF009CA6))),
-        Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: isActive ? const Color(0xFF009CA6) : Colors.grey.shade300,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: step > 0
+                ? Text('$step', style: TextStyle(color: isActive ? Colors.white : Colors.grey, fontWeight: FontWeight.bold, fontSize: 14))
+                : Icon(Icons.build, size: 14, color: isActive ? Colors.white : Colors.grey),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isActive ? const Color(0xFF009CA6) : Colors.grey)),
+            if (subtitle != null)
+              Text(subtitle!, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ],
+        ),
       ],
+    );
+  }
+}
+
+class _RegistrationResultCard extends StatelessWidget {
+  final String status;
+  final String message;
+  final bool success;
+  final VoidCallback onDismiss;
+
+  const _RegistrationResultCard({
+    required this.status,
+    required this.message,
+    required this.success,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bgColor;
+    final Color borderColor;
+    final Color textColor;
+    final IconData icon;
+
+    if (status == 'active') {
+      bgColor = Colors.green.shade50;
+      borderColor = Colors.green;
+      textColor = Colors.green.shade800;
+      icon = Icons.check_circle;
+    } else if (status == 'pending_approval') {
+      bgColor = Colors.amber.shade50;
+      borderColor = Colors.amber.shade700;
+      textColor = Colors.brown;
+      icon = Icons.hourglass_top;
+    } else if (status == 'pending_branch') {
+      bgColor = Colors.blue.shade50;
+      borderColor = Colors.blue;
+      textColor = Colors.blue.shade800;
+      icon = Icons.location_on;
+    } else if (status == 'max_devices_reached') {
+      bgColor = Colors.red.shade50;
+      borderColor = Colors.red;
+      textColor = Colors.red.shade800;
+      icon = Icons.devices;
+    } else {
+      bgColor = Colors.red.shade50;
+      borderColor = Colors.red;
+      textColor = Colors.red.shade800;
+      icon = Icons.error;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: borderColor, size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(color: textColor, fontSize: 13, height: 1.4),
+                ),
+              ),
+              IconButton(
+                onPressed: onDismiss,
+                icon: Icon(Icons.close, size: 16, color: borderColor),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+          if (success) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: borderColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Text('Done — Go to Punch', style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

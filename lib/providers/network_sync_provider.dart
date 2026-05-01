@@ -197,13 +197,13 @@ class NetworkSyncManager {
           _logger.i('✅ Synced punch ${punch.id} (${punch.punchType} at ${punch.timestamp})');
         } else {
           final error = result['error'] as String? ?? 'Unknown error';
-          // Only keep retrying for non-permanent errors
-          if (!_isPermanentError(error)) {
-            await _offlineSync.markFailed(punch.id, error);
-          } else {
-            // Mark as permanent failure (e.g. geofence violation — won't fix itself)
-            await _offlineSync.markFailed(punch.id, error);
+          if (_isPermanentError(error)) {
+            // Mark as permanent failure — won't retry (e.g. geofence, mock location, biometric)
+            await _offlineSync.markPermanentFailure(punch.id, error);
             _logger.w('⚠️ Permanent failure for punch ${punch.id}: $error');
+          } else {
+            // Retriable error — increment retry count; after 10 retries becomes failed_permanent
+            await _offlineSync.markFailed(punch.id, error);
           }
         }
       }

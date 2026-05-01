@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:logger/logger.dart';
 import 'package:uuid/uuid.dart';
@@ -73,6 +74,12 @@ class OfflineSyncService {
     _logger.w('Punch $id failed: $error');
   }
 
+  /// Mark a punch as permanently failed (won't retry).
+  Future<void> markPermanentFailure(int id, String error) async {
+    await _db.setPermanentFailure(id, error);
+    _logger.w('Punch $id permanently failed: $error');
+  }
+
   /// Flag punches older than 24h as expired for admin review.
   /// Should be called at the start of each sync sweep.
   Future<void> flagExpiredPunches() async {
@@ -85,20 +92,63 @@ class OfflineSyncService {
       _db.getRecentHistory(limit: limit);
 
   /// Save branch config locally for offline operation.
+  /// [config] is the full device-config response including 'branches' list.
   Future<void> cacheConfig(Map<String, dynamic> config) async {
+    final branches = config['branches'] as List<dynamic>? ?? [];
+    final branchesJson = _encodeBranches(branches);
+
+    // Use first branch as primary, or defaults if empty
+    final primary = branches.isNotEmpty ? branches[0] as Map<String, dynamic> : null;
+
     await _db.saveCachedConfig(
       CachedConfigCompanion.insert(
-        branchName: config['branch_name'] as String? ?? '',
-        latitude: config['latitude'] as double? ?? 0.0,
-        longitude: config['longitude'] as double? ?? 0.0,
-        radiusMeters: config['radius_meters'] as double? ?? 100.0,
+        branchName: primary?['name'] as String? ??
+            (branches.length > 1 ? '${branches.length} Locations' : 'Unknown'),
+        latitude: primary?['latitude'] as double? ?? 0.0,
+        longitude: primary?['longitude'] as double? ?? 0.0,
+        radiusMeters: primary?['radius_meters'] as double? ?? 100.0,
         registrationStatus: Value(config['status'] as String? ?? 'pending'),
+        branchesJson: Value(branchesJson),
       ),
     );
   }
 
+  String _encodeBranches(List<dynamic> branches) {
+    final list = branches.map((b) {
+      final m = b as Map<String, dynamic>;
+      return {
+        'id': m['id'],
+        'name': m['name'],
+        'latitude': m['latitude'],
+        'longitude': m['longitude'],
+        'radius_meters': m['radius_meters'],
+      };
+    }).toList();
+    return jsonEncode(list);
+  }
+
+  List<Map<String, dynamic>> _decodeBranches(String raw) {
+    if (raw.isEmpty || raw == '[]') return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e) {
+      _logger.e('Failed to parse cached branches: $e');
+      return [];
+    }
+  }
+
   /// Get the last cached config (used when offline).
+  /// Returns a map compatible with the old single-branch format,
+  /// plus a 'branches' key with the full list.
   Future<CachedConfigData?> getCachedConfig() => _db.getCachedConfig();
+
+  /// Get all cached branches as a list (for multi-branch UI).
+  Future<List<Map<String, dynamic>>> getCachedBranches() async {
+    final cached = await _db.getCachedConfig();
+    if (cached == null) return [];
+    return _decodeBranches(cached.branchesJson);
+  }
 
   /// Save punch types fetched from server.
   Future<void> cachePunchTypes(List<Map<String, dynamic>> types) async {

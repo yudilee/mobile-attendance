@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -13,17 +14,31 @@ class PunchTab extends ConsumerStatefulWidget {
   ConsumerState<PunchTab> createState() => _PunchTabState();
 }
 
-class _PunchTabState extends ConsumerState<PunchTab> {
+class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver {
   String _employeeId = '';
   bool _isConfigured = false;
+  List<String> _configGaps = [];
 
   @override
   void initState() {
     super.initState();
-    _loadEmployeeId();
+    WidgetsBinding.instance.addObserver(this);
+    _loadSettings();
     _requestPermissionsOnStartup();
-    // Start background sync manager (periodic timer + connectivity listener)
     Future.microtask(() => ref.read(networkSyncProvider).start());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadSettings();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   /// Request location permission upfront so Android shows the dialog
@@ -36,13 +51,14 @@ class _PunchTabState extends ConsumerState<PunchTab> {
     }
   }
 
-  Future<void> _loadEmployeeId() async {
-
+  Future<void> _loadSettings() async {
     final id = await AppSettings.getEmployeeId();
     final configured = await AppSettings.isConfigured();
+    final gaps = await AppSettings.configurationGaps();
     setState(() {
       _employeeId = id;
       _isConfigured = configured;
+      _configGaps = gaps;
     });
   }
 
@@ -52,9 +68,8 @@ class _PunchTabState extends ConsumerState<PunchTab> {
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
     if (saved == true) {
-      // Reset state and reload employee ID after saving
       ref.read(punchStateProvider.notifier).reset();
-      await _loadEmployeeId();
+      await _loadSettings();
     }
   }
 
@@ -106,12 +121,23 @@ class _PunchTabState extends ConsumerState<PunchTab> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             deviceConfig.when(
-              data: (config) => _HeaderWidget(
-                employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
-                isConfigured: _isConfigured,
-                onSetupTap: _openSettings,
-                branchName: config['status'] == 'active' ? config['branch_name'] : null,
-              ),
+              data: (config) {
+                final branchesList = config['branches'] as List<dynamic>?;
+                final firstBranch = branchesList != null && branchesList.isNotEmpty
+                    ? branchesList[0] as Map<String, dynamic>
+                    : null;
+                return _HeaderWidget(
+                  employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
+                  isConfigured: _isConfigured,
+                  onSetupTap: _openSettings,
+                  branches: branchesList
+                      ?.map((b) => (b as Map<String, dynamic>)['name'] as String)
+                      .toList(),
+                  branchName: firstBranch?['name'] as String? ?? config['branch_name'] as String?,
+                  deviceCount: config['device_count'] as int?,
+                  maxDevices: config['max_devices'] as int?,
+                );
+              },
               loading: () => _HeaderWidget(
                 employeeId: _employeeId,
                 isConfigured: _isConfigured,
@@ -128,28 +154,22 @@ class _PunchTabState extends ConsumerState<PunchTab> {
 
             // Config / Branch Status logic
             if (!_isConfigured)
-              _NotConfiguredCard(onSetupTap: _openSettings)
+              _NotConfiguredCard(onSetupTap: _openSettings, gaps: _configGaps)
             else if (deviceConfig.isLoading && !deviceConfig.hasValue && !deviceConfig.hasError) 
               const Center(child: CircularProgressIndicator(color: Color(0xFF009CA6)))
             else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending_approval')
               _PendingAssignmentCard(message: deviceConfig.value?['message'] ?? 'Waiting for admin approval. Contact HR.')
             else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending_branch')
               _PendingAssignmentCard(message: deviceConfig.value?['message'] ?? 'Approved! Waiting for branch assignment.')
+            else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'max_devices_reached')
+              _MaxDevicesReachedCard(
+                message: deviceConfig.value?['message'] ?? 'Maximum devices reached.',
+                deviceCount: deviceConfig.value?['device_count'] ?? 0,
+                maxDevices: deviceConfig.value?['max_devices'] ?? 5,
+              )
             else
               Builder(
                 builder: (context) {
-                  if (punchState.status == PunchStatus.loading) {
-                    return const Center(
-                      child: Column(
-                        children: [
-                          CircularProgressIndicator(color: Color(0xFF009CA6)),
-                          SizedBox(height: 16),
-                          Text('Verifying biometrics & location...', style: TextStyle(color: Colors.grey)),
-                        ],
-                      ),
-                    );
-                  }
-
                   return Column(
                     children: [
                       AnimatedSwitcher(
@@ -201,12 +221,15 @@ class _PunchTabState extends ConsumerState<PunchTab> {
                               final isOut = pt.code.toLowerCase().contains('out');
                               final color = isOut ? Colors.red.shade600 : Theme.of(context).colorScheme.primary;
                               final icon = isOut ? Icons.logout_rounded : Icons.login_rounded;
+                              final isLoading = punchState.status == PunchStatus.loading;
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 16),
                                 child: _PunchButton(
                                   label: pt.label.toUpperCase(),
                                   icon: icon,
                                   color: color,
+                                  enabled: !isLoading,
+                                  loading: isLoading,
                                   onPressed: () => punchNotifier.performPunch(_employeeId, pt.code),
                                 ),
                               );
@@ -234,7 +257,10 @@ class _PunchTabState extends ConsumerState<PunchTab> {
               ),
 
             const Spacer(),
-            _StatusFeedback(state: punchState),
+            _StatusFeedback(
+              state: punchState,
+              onDismiss: () => ref.read(punchStateProvider.notifier).reset(),
+            ),
           ],
         ),
       ),
@@ -248,14 +274,29 @@ class _HeaderWidget extends StatelessWidget {
   final String employeeId;
   final bool isConfigured;
   final VoidCallback onSetupTap;
+  final List<String>? branches;
   final String? branchName;
+  final int? deviceCount;
+  final int? maxDevices;
 
   const _HeaderWidget({
     required this.employeeId,
     required this.isConfigured,
     required this.onSetupTap,
+    this.branches,
     this.branchName,
+    this.deviceCount,
+    this.maxDevices,
   });
+
+  String get _branchDisplay {
+    if (branches != null && branches!.length > 1) {
+      return '${branches!.first} +${branches!.length - 1} more';
+    }
+    return branchName ?? (isConfigured ? 'Syncing branch...' : 'Tap \u2699\uFE0F to configure');
+  }
+
+  bool get _hasValidBranch => branchName != null && branchName != 'Connection Error';
 
   @override
   Widget build(BuildContext context) {
@@ -269,7 +310,7 @@ class _HeaderWidget extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Colors.white, const Color(0xFFE0F2F1)], // Light teal match
+            colors: [Colors.white, const Color(0xFFE0F2F1)],
           ),
         ),
         padding: const EdgeInsets.all(24.0),
@@ -279,7 +320,10 @@ class _HeaderWidget extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 boxShadow: [
-                  BoxShadow(color: (branchName != null && branchName != 'Connection Error') ? const Color(0xFF009CA6).withOpacity(0.2) : Colors.black12, blurRadius: 10, spreadRadius: 2)
+                  BoxShadow(
+                    color: _hasValidBranch ? const Color(0xFF009CA6).withOpacity(0.2) : Colors.black12,
+                    blurRadius: 10, spreadRadius: 2,
+                  )
                 ]
               ),
               child: CircleAvatar(
@@ -302,20 +346,34 @@ class _HeaderWidget extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
-                  branchName != null ? Icons.location_on : Icons.location_off,
+                  _hasValidBranch ? Icons.location_on : Icons.location_off,
                   size: 14,
-                  color: branchName != null ? const Color(0xFF009CA6) : Colors.grey,
+                  color: _hasValidBranch ? const Color(0xFF009CA6) : Colors.grey,
                 ),
                 const SizedBox(width: 4),
-                Text(
-                  branchName ?? (isConfigured ? 'Syncing branch...' : 'Tap ⚙️ to configure'),
-                  style: TextStyle(
-                    color: branchName == 'Connection Error' ? Colors.red : Colors.grey.shade700,
-                    fontWeight: branchName != null ? FontWeight.w600 : FontWeight.normal,
+                Flexible(
+                  child: Text(
+                    _branchDisplay,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: branchName == 'Connection Error' ? Colors.red : Colors.grey.shade700,
+                      fontWeight: _hasValidBranch ? FontWeight.w600 : FontWeight.normal,
+                    ),
                   ),
                 ),
               ],
             ),
+            if (deviceCount != null && maxDevices != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Devices: $deviceCount/$maxDevices',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: deviceCount! >= maxDevices! ? Colors.red : Colors.grey.shade500,
+                  fontWeight: deviceCount! >= maxDevices! ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -353,41 +411,130 @@ class _PendingAssignmentCard extends StatelessWidget {
   }
 }
 
-class _NotConfiguredCard extends StatelessWidget {
-  final VoidCallback onSetupTap;
-  const _NotConfiguredCard({required this.onSetupTap});
+
+class _MaxDevicesReachedCard extends StatelessWidget {
+  final String message;
+  final int deviceCount;
+  final int maxDevices;
+  const _MaxDevicesReachedCard({
+    required this.message,
+    required this.deviceCount,
+    required this.maxDevices,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.shade300),
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.shade300, width: 2),
       ),
       child: Column(
         children: [
-          const Icon(Icons.warning_amber_rounded, size: 40, color: Colors.orange),
-          const SizedBox(height: 12),
-          const Text(
-            'App Not Configured',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Please set your Employee ID, server URL, and API key before clocking in.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.red.shade100, shape: BoxShape.circle),
+            child: const Icon(Icons.devices, size: 40, color: Colors.red),
           ),
           const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: onSetupTap,
-            icon: const Icon(Icons.settings),
-            label: const Text('Open Settings'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
+          const Text('Device Limit Reached', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.red)),
+          const SizedBox(height: 8),
+          Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red, height: 1.4)),
+          const SizedBox(height: 8),
+          Text(
+            'You have $deviceCount of $maxDevices allowed devices.',
+            style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotConfiguredCard extends StatelessWidget {
+  final VoidCallback onSetupTap;
+  final List<String> gaps;
+  const _NotConfiguredCard({required this.onSetupTap, this.gaps = const []});
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = <_SetupStep>[
+      _SetupStep(
+        icon: Icons.badge,
+        label: 'Employee ID',
+        done: !gaps.contains('Employee ID'),
+      ),
+      _SetupStep(
+        icon: Icons.dns,
+        label: 'Server URL',
+        done: !gaps.contains('Server URL'),
+      ),
+      _SetupStep(
+        icon: Icons.key,
+        label: 'API Key',
+        done: !gaps.contains('API Key'),
+      ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.shade300, width: 2),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: Colors.orange.shade100, shape: BoxShape.circle),
+                child: const Icon(Icons.warning_amber_rounded, size: 28, color: Colors.orange),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Setup Required', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+                    Text('Complete these steps to start clocking in', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...steps.map((s) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(s.done ? Icons.check_circle : Icons.radio_button_unchecked, size: 18, color: s.done ? Colors.green : Colors.grey),
+                const SizedBox(width: 8),
+                Icon(s.icon, size: 16, color: s.done ? Colors.green : Colors.grey),
+                const SizedBox(width: 8),
+                Text(s.label, style: TextStyle(fontSize: 14, color: s.done ? Colors.green.shade700 : Colors.grey.shade700, fontWeight: s.done ? FontWeight.w600 : FontWeight.normal)),
+                const Spacer(),
+                if (s.done)
+                  const Text('Done', style: TextStyle(fontSize: 11, color: Colors.green)),
+              ],
+            ),
+          )),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onSetupTap,
+              icon: const Icon(Icons.settings, size: 18),
+              label: const Text('Complete Setup'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
             ),
           ),
         ],
@@ -396,24 +543,35 @@ class _NotConfiguredCard extends StatelessWidget {
   }
 }
 
+class _SetupStep {
+  final IconData icon;
+  final String label;
+  final bool done;
+  const _SetupStep({required this.icon, required this.label, required this.done});
+}
+
 class _PunchButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onPressed;
+  final bool enabled;
+  final bool loading;
 
   const _PunchButton({
     required this.label,
     required this.icon,
     required this.color,
     required this.onPressed,
+    this.enabled = true,
+    this.loading = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Create a gradient based on the base color
+    final effectiveColor = enabled ? color : Colors.grey;
     final gradient = LinearGradient(
-      colors: [color, color.withBlue((color.blue + 30).clamp(0, 255))],
+      colors: [effectiveColor, effectiveColor.withBlue((effectiveColor.blue + 30).clamp(0, 255))],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
     );
@@ -426,7 +584,7 @@ class _PunchButton extends StatelessWidget {
         gradient: gradient,
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.3),
+            color: effectiveColor.withOpacity(enabled ? 0.3 : 0.1),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -436,7 +594,7 @@ class _PunchButton extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: onPressed,
+          onTap: enabled && !loading ? onPressed : null,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
@@ -447,12 +605,20 @@ class _PunchButton extends StatelessWidget {
                     color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon, color: Colors.white, size: 28),
+                  child: loading
+                      ? const SizedBox(
+                          width: 28, height: 28,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 3,
+                          ),
+                        )
+                      : Icon(icon, color: Colors.white, size: 28),
                 ),
                 const SizedBox(width: 20),
                 Expanded(
                   child: Text(
-                    label,
+                    loading ? 'Processing...' : label,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 20,
@@ -461,7 +627,8 @@ class _PunchButton extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+                if (!loading)
+                  const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
               ],
             ),
           ),
@@ -471,23 +638,67 @@ class _PunchButton extends StatelessWidget {
   }
 }
 
-class _StatusFeedback extends StatelessWidget {
+class _StatusFeedback extends StatefulWidget {
   final PunchState state;
-  const _StatusFeedback({required this.state});
+  final VoidCallback onDismiss;
+
+  const _StatusFeedback({
+    required this.state,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_StatusFeedback> createState() => _StatusFeedbackState();
+}
+
+class _StatusFeedbackState extends State<_StatusFeedback> {
+  Timer? _autoDismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _maybeStartTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _StatusFeedback oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.state != oldWidget.state) {
+      _maybeStartTimer();
+    }
+  }
+
+  void _maybeStartTimer() {
+    _autoDismissTimer?.cancel();
+    final status = widget.state.status;
+    if (status == PunchStatus.success || status == PunchStatus.offline) {
+      _autoDismissTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) widget.onDismiss();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoDismissTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (state.status == PunchStatus.idle) return const SizedBox.shrink();
+    final state = widget.state;
+    if (state.status == PunchStatus.idle || state.status == PunchStatus.loading) {
+      return const SizedBox.shrink();
+    }
 
     final isSuccess = state.status == PunchStatus.success;
     final isOffline = state.status == PunchStatus.offline;
     final isError = state.status == PunchStatus.error;
-    
+
     String displayTime = '';
     if (isSuccess && state.result?['server_time'] != null) {
       try {
         String rawTime = state.result!['server_time'].toString();
-        // Ensure the parser knows it's UTC if 'Z' is missing
         if (!rawTime.endsWith('Z') && !rawTime.contains('+')) {
           rawTime += 'Z';
         }
@@ -495,7 +706,6 @@ class _StatusFeedback extends StatelessWidget {
         displayTime = "${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} "
             "${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}";
       } catch (e) {
-        // Fallback to basic cleaning if parsing fails
         displayTime = state.result!['server_time'].toString().replaceAll('T', ' ').split('.').first;
       }
     }
@@ -511,7 +721,7 @@ class _StatusFeedback extends StatelessWidget {
       borderColor = Colors.green;
       textColor = Colors.green.shade900;
       icon = Icons.check_circle;
-      mainText = 'Attendance Recorded ✅';
+      mainText = 'Attendance Recorded';
     } else if (isOffline) {
       bgColor = Colors.orange.shade50;
       borderColor = Colors.orange;
@@ -527,29 +737,54 @@ class _StatusFeedback extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: borderColor),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(icon, color: borderColor),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  mainText,
-                  style: TextStyle(
-                    color: textColor,
-                    fontWeight: FontWeight.w600,
-                  ),
+          Row(
+            children: [
+              Icon(icon, color: borderColor),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      mainText,
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (isSuccess && displayTime.isNotEmpty)
+                      Text(
+                        'Local time: $displayTime',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                  ],
                 ),
-                if (isSuccess && displayTime.isNotEmpty)
-                  Text(
-                    'Local time: $displayTime',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-              ],
-            ),
+              ),
+              IconButton(
+                onPressed: widget.onDismiss,
+                icon: const Icon(Icons.close, size: 18),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                color: borderColor,
+              ),
+            ],
           ),
+          if (isError) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: widget.onDismiss,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Try Again', style: TextStyle(fontSize: 13)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: borderColor,
+                side: BorderSide(color: borderColor),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ],
         ],
       ),
     );

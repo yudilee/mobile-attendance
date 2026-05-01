@@ -43,7 +43,18 @@ class AppSettings {
 
   static Future<bool> isConfigured() async {
     final empId = await getEmployeeId();
-    return empId.isNotEmpty;
+    final serverUrl = await getServerUrl();
+    final apiKey = await getApiKey();
+    return empId.isNotEmpty && serverUrl.isNotEmpty && apiKey.isNotEmpty;
+  }
+
+  /// Returns a list of human-readable reasons why the app is not configured.
+  static Future<List<String>> configurationGaps() async {
+    final gaps = <String>[];
+    if ((await getEmployeeId()).isEmpty) gaps.add('Employee ID');
+    if ((await getServerUrl()).isEmpty) gaps.add('Server URL');
+    if ((await getApiKey()).isEmpty) gaps.add('API Key');
+    return gaps;
   }
 }
 
