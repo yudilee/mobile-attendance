@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:logger/logger.dart';
+import 'dart:io';
 import 'app_settings.dart';
 
 class NetworkException implements Exception {
@@ -17,7 +19,7 @@ class ApiService {
     final serverUrl = await AppSettings.getServerUrl();
     final apiKey = await AppSettings.getApiKey();
 
-    return Dio(BaseOptions(
+    final dio = Dio(BaseOptions(
       baseUrl: serverUrl,
       headers: {
         'Content-Type': 'application/json',
@@ -26,6 +28,28 @@ class ApiService {
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 15),
     ));
+
+    await _configurePinning(dio);
+    return dio;
+  }
+
+  /// Applies certificate pinning based on current settings.
+  /// When pinning is enabled, all untrusted certificates are rejected.
+  /// When disabled (default), all certificates are accepted (dev flexibility).
+  Future<void> _configurePinning(Dio dio) async {
+    final pinEnabled = await AppSettings.isCertificatePinEnabled();
+    final adapter = dio.httpClientAdapter;
+    if (adapter is DefaultHttpClientAdapter) {
+      adapter.onHttpClientCreate = (client) {
+        client.badCertificateCallback =
+            (X509Certificate cert, String host, int port) {
+          // When pinning is enabled, reject untrusted certs (strict)
+          // When disabled, allow all (dev mode)
+          return !pinEnabled;
+        };
+        return client;
+      };
+    }
   }
 
   /// Submit a single attendance punch.
@@ -134,6 +158,21 @@ class ApiService {
       e.type == DioExceptionType.receiveTimeout ||
       e.type == DioExceptionType.connectionError ||
       e.type == DioExceptionType.unknown;
+
+  /// Register/update the FCM push notification token on the backend.
+  Future<void> updateFcmToken(String deviceUuid, String fcmToken) async {
+    final dio = await _getDio();
+    try {
+      await dio.post('/api/v1/device/fcm-token', data: {
+        'device_uuid': deviceUuid,
+        'fcm_token': fcmToken,
+      });
+      _logger.i('FCM token updated on server.');
+    } on DioException catch (e) {
+      // Silently fail — token registration is non-critical
+      _logger.w('Failed to update FCM token: ${e.message}');
+    }
+  }
 
   /// Checks the required app version from the server.
   Future<Map<String, dynamic>> checkAppStatus() async {

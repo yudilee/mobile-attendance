@@ -8,8 +8,11 @@ class AppSettings {
   static const _keyServerUrl = 'server_url';
   static const _keyDeviceLabel = 'device_label';
   static const _keyApiKey = 'api_key'; // stored in secure storage
+  static const _keyCertificatePinEnabled = 'certificate_pin_enabled';
+  static const _keyBiometricSessionSeconds = 'biometric_session_seconds';
 
   static const defaultServerUrl = 'http://10.0.2.2:8000';
+  static const defaultBiometricSessionSeconds = 30;
   static const _secure = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
@@ -40,6 +43,58 @@ class AppSettings {
 
   static Future<void> setApiKey(String key) async =>
       _secure.write(key: _keyApiKey, value: key.trim());
+
+  // ── Certificate Pinning ──────────────────────────────────────────────────────
+
+  static Future<bool> isCertificatePinEnabled() async =>
+      (await _prefs()).getBool(_keyCertificatePinEnabled) ?? false;
+
+  static Future<void> setCertificatePinEnabled(bool enabled) async =>
+      (await _prefs()).setBool(_keyCertificatePinEnabled, enabled);
+
+  // ── Biometric Session Duration ───────────────────────────────────────────────
+
+  static Future<int> getBiometricSessionSeconds() async =>
+      (await _prefs()).getInt(_keyBiometricSessionSeconds) ?? defaultBiometricSessionSeconds;
+
+  static Future<void> setBiometricSessionSeconds(int seconds) async =>
+      (await _prefs()).setInt(_keyBiometricSessionSeconds, seconds);
+
+  // ── QR / NFC Verification Toggles ─────────────────────────────────────────────
+
+  static Future<bool> getQREnabled() async =>
+      (await _prefs()).getBool('qr_enabled') ?? false;
+
+  static Future<void> setQREnabled(bool val) async =>
+      (await _prefs()).setBool('qr_enabled', val);
+
+  static Future<bool> getNFCEnabled() async =>
+      (await _prefs()).getBool('nfc_enabled') ?? false;
+
+  static Future<void> setNFCEnabled(bool val) async =>
+      (await _prefs()).setBool('nfc_enabled', val);
+
+  // ── Selfie / Face Verification ──────────────────────────────────────────────
+
+  static Future<bool> getSelfieEnabled() async =>
+      (await _prefs()).getBool('selfie_enabled') ?? false;
+
+  static Future<void> setSelfieEnabled(bool val) async =>
+      (await _prefs()).setBool('selfie_enabled', val);
+
+  // ── Push Notifications ───────────────────────────────────────────────────────
+
+  static Future<bool> getNotificationsEnabled() async =>
+      (await _prefs()).getBool('notifications_enabled') ?? true;
+
+  static Future<void> setNotificationsEnabled(bool val) async =>
+      (await _prefs()).setBool('notifications_enabled', val);
+
+  static Future<bool> getReminderNotifications() async =>
+      (await _prefs()).getBool('reminder_notifications') ?? true;
+
+  static Future<void> setReminderNotifications(bool val) async =>
+      (await _prefs()).setBool('reminder_notifications', val);
 
   static Future<bool> isConfigured() async {
     final empId = await getEmployeeId();

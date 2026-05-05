@@ -1,8 +1,10 @@
 import 'package:local_auth/local_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter_jailbreak_detection/flutter_jailbreak_detection.dart';
 import 'dart:io';
 import 'package:logger/logger.dart';
+import 'app_settings.dart';
 
 class SecurityService {
   final LocalAuthentication _auth = LocalAuthentication();
@@ -55,6 +57,32 @@ class SecurityService {
     return result.verified;
   }
 
+  // ── Root / Jailbreak Detection ───────────────────────────────────────────────
+
+  /// Returns true if the device is secure (not rooted/jailbroken and developer mode is off).
+  Future<bool> isDeviceSecure() async {
+    try {
+      final jailbroken = await FlutterJailbreakDetection.jailbroken;
+      final developerMode = await FlutterJailbreakDetection.developerMode;
+      return !jailbroken && !developerMode;
+    } catch (e) {
+      _logger.e("Jailbreak detection failed: $e");
+      // If detection fails, assume secure (fail-open)
+      return true;
+    }
+  }
+
+  /// Returns true if the device is compromised (rooted/jailbroken or not a real device).
+  Future<bool> isDeviceCompromised() async {
+    return !await isDeviceSecure();
+  }
+
+  // ── Biometric Session Duration ───────────────────────────────────────────────
+
+  /// Returns the configured biometric session timeout in seconds.
+  Future<int> getBiometricSessionSeconds() async {
+    return await AppSettings.getBiometricSessionSeconds();
+  }
 
   /// Get Location with Mock Location Check
   /// This is the core geo-fencing requirement.

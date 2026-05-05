@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
 import '../../services/security_service.dart';
+import 'help_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -27,6 +28,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _regMessage = '';
   bool _regSuccess = false;
 
+  // Security settings
+  bool _certificatePinEnabled = false;
+  int _biometricSessionSeconds = 30;
+  bool _qrEnabled = false;
+  bool _nfcEnabled = false;
+  bool _selfieEnabled = false;
+
+  // Notification settings
+  bool _notificationsEnabled = true;
+  bool _reminderNotifications = true;
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +49,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _serverUrlCtrl.text = await AppSettings.getServerUrl();
     _apiKeyCtrl.text = await AppSettings.getApiKey();
     _deviceLabelCtrl.text = await AppSettings.getDeviceLabel();
+    _certificatePinEnabled = await AppSettings.isCertificatePinEnabled();
+    _biometricSessionSeconds = await AppSettings.getBiometricSessionSeconds();
+    _qrEnabled = await AppSettings.getQREnabled();
+    _nfcEnabled = await AppSettings.getNFCEnabled();
+    _selfieEnabled = await AppSettings.getSelfieEnabled();
+    _notificationsEnabled = await AppSettings.getNotificationsEnabled();
+    _reminderNotifications = await AppSettings.getReminderNotifications();
     setState(() {});
   }
 
@@ -119,6 +138,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     } finally {
       if (mounted) setState(() => _registering = false);
+    }
+  }
+
+  String get _biometricSessionLabel {
+    switch (_biometricSessionSeconds) {
+      case 0:
+        return 'Every Punch';
+      case 30:
+        return '30 seconds';
+      case 60:
+        return '1 minute';
+      case 300:
+        return '5 minutes';
+      default:
+        return '$_biometricSessionSeconds seconds';
     }
   }
 
@@ -275,6 +309,142 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Divider(),
               const SizedBox(height: 16),
 
+              // ── Security ──────────────────────────────────────────────────
+              _StepIndicator(step: 0, title: 'Security', isActive: false),
+              const SizedBox(height: 12),
+              _Card(
+                children: [
+                  // Certificate Pinning toggle
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Enable Certificate Pinning',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Reject untrusted server certificates',
+                        style: TextStyle(fontSize: 12)),
+                    value: _certificatePinEnabled,
+                    activeColor: const Color(0xFF009CA6),
+                    onChanged: (value) async {
+                      await AppSettings.setCertificatePinEnabled(value);
+                      setState(() => _certificatePinEnabled = value);
+                    },
+                  ),
+                  const Divider(height: 1),
+                  // Biometric Session Timeout
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Biometric Session Timeout',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: Text(_biometricSessionLabel, style: const TextStyle(fontSize: 12)),
+                    trailing: DropdownButton<int>(
+                      value: _biometricSessionSeconds,
+                      underline: const SizedBox.shrink(),
+                      items: const [
+                        DropdownMenuItem(value: 0, child: Text('Every Punch')),
+                        DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                        DropdownMenuItem(value: 60, child: Text('1 minute')),
+                        DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                      ],
+                      onChanged: (value) async {
+                        if (value != null) {
+                          await AppSettings.setBiometricSessionSeconds(value);
+                          setState(() => _biometricSessionSeconds = value);
+                        }
+                      },
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  // QR Code Verification toggle
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('QR Code Verification',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Require QR scan before punch',
+                        style: TextStyle(fontSize: 12)),
+                    value: _qrEnabled,
+                    activeColor: const Color(0xFF009CA6),
+                    onChanged: (value) async {
+                      await AppSettings.setQREnabled(value);
+                      setState(() => _qrEnabled = value);
+                    },
+                  ),
+                  const Divider(height: 1),
+                  // NFC Verification toggle
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('NFC Verification',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Require NFC tag scan before punch',
+                        style: TextStyle(fontSize: 12)),
+                    value: _nfcEnabled,
+                    activeColor: const Color(0xFF009CA6),
+                    onChanged: (value) async {
+                      await AppSettings.setNFCEnabled(value);
+                      setState(() => _nfcEnabled = value);
+                    },
+                  ),
+                  const Divider(height: 1),
+                  // Selfie / Face Verification toggle
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Selfie Verification',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Require a selfie photo before punching',
+                        style: TextStyle(fontSize: 12)),
+                    value: _selfieEnabled,
+                    activeColor: const Color(0xFF009CA6),
+                    onChanged: (value) async {
+                      await AppSettings.setSelfieEnabled(value);
+                      setState(() => _selfieEnabled = value);
+                    },
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // ── Notifications ──────────────────────────────────────────────
+              _StepIndicator(step: 0, title: 'Notifications', isActive: false),
+              const SizedBox(height: 12),
+              _Card(
+                children: [
+                  // Push Notifications master toggle
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Push Notifications',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Receive attendance alerts and reminders',
+                        style: TextStyle(fontSize: 12)),
+                    value: _notificationsEnabled,
+                    activeColor: const Color(0xFF009CA6),
+                    onChanged: (value) async {
+                      await AppSettings.setNotificationsEnabled(value);
+                      setState(() => _notificationsEnabled = value);
+                    },
+                  ),
+                  const Divider(height: 1),
+                  // Clock-in Reminder toggle
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Clock-in Reminders',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Get reminded to clock in on weekday mornings',
+                        style: TextStyle(fontSize: 12)),
+                    value: _reminderNotifications,
+                    activeColor: const Color(0xFF009CA6),
+                    onChanged: (value) async {
+                      await AppSettings.setReminderNotifications(value);
+                      setState(() => _reminderNotifications = value);
+                    },
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+
               // ── Tools ────────────────────────────────────────────────────
               _StepIndicator(step: 0, title: 'Tools', isActive: false),
               const SizedBox(height: 12),
@@ -310,6 +480,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   label: const Text('Check Server Status & Updates', style: TextStyle(color: Color(0xFF009CA6))),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const HelpScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.help_outline),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    side: const BorderSide(color: Color(0xFF009CA6)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  label: const Text('Help & Documentation', style: TextStyle(color: Color(0xFF009CA6))),
                 ),
               ),
 

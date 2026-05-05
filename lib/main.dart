@@ -1,12 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'ui/theme.dart';
 import 'ui/screens/home_screen.dart';
 import 'services/api_service.dart';
+import 'services/notification_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase (required for FCM push notifications)
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('Firebase initialization failed (non-fatal): $e');
+    // App continues without push notifications
+  }
+
+  // Initialize notification service (FCM token registration, handlers)
+  try {
+    await NotificationService().initialize();
+  } catch (e) {
+    debugPrint('Notification service init failed (non-fatal): $e');
+  }
+
   runApp(
     const ProviderScope(
       child: AttendanceApp(),

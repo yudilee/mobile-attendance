@@ -194,6 +194,15 @@ class AppDatabase extends _$AppDatabase {
             ..limit(limit))
           .get();
 
+  /// Get punches within a specific date range (for dashboard calculations).
+  Future<List<PunchHistoryData>> getPunchesInRange(DateTime start, DateTime end) {
+    return (select(punchHistory)
+          ..where((t) => t.timestamp.isBetweenValues(
+              start.toIso8601String(), end.toIso8601String()))
+          ..orderBy([(t) => OrderingTerm(expression: t.timestamp)]))
+        .get();
+  }
+
   // ── Cached Config ──────────────────────────────────────────────────────────
 
   Future<CachedConfigData?> getCachedConfig() =>

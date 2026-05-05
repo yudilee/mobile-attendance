@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import '../../providers/punch_provider.dart';
 import '../../providers/network_sync_provider.dart';
 import '../../services/app_settings.dart';
+import 'qr_scan_screen.dart';
+import 'selfie_screen.dart';
 import 'settings_screen.dart';
 
 class PunchTab extends ConsumerStatefulWidget {
@@ -78,6 +80,39 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
     final punchState = ref.watch(punchStateProvider);
     final punchNotifier = ref.read(punchStateProvider.notifier);
     final deviceConfig = ref.watch(deviceConfigProvider);
+
+    // ── Selfie required — show selfie capture screen ───────────────────────
+    if (punchState.status == PunchStatus.selfieRequired) {
+      return SelfieScreen(
+        key: const ValueKey('selfie_screen'),
+        onConfirm: (base64) {
+          punchNotifier.setSelfieBase64(base64);
+          // After selfie captured, retry the punch
+          punchNotifier.retryWithQR(); // Reuses stored _lastEmployeeId/_lastPunchType
+        },
+        onCancel: () {
+          punchNotifier.reset();
+        },
+      );
+    }
+
+    // ── QR required — show QR scan screen ──────────────────────────────────
+    if (punchState.status == PunchStatus.qrRequired &&
+        punchState.expectedQrData != null) {
+      return QRScanScreen(
+        expectedQrData: punchState.expectedQrData!,
+        onSuccess: () {
+          punchNotifier.markQRVerified();
+          // After marking QR verified, retry the punch
+          // The punch type is stored in the current state context
+          // We re-trigger through the provider
+          punchNotifier.retryWithQR();
+        },
+        onCancel: () {
+          punchNotifier.resetQRState();
+        },
+      );
+    }
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -171,6 +206,13 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                 message: deviceConfig.value?['message'] ?? 'Maximum devices reached.',
                 deviceCount: deviceConfig.value?['device_count'] ?? 0,
                 maxDevices: deviceConfig.value?['max_devices'] ?? 5,
+              )
+            else if (punchState.status == PunchStatus.error &&
+                (punchState.errorMessage?.toLowerCase().contains('rooted/jailbroken') == true ||
+                 punchState.errorMessage?.toLowerCase().contains('compromised') == true))
+              _DeviceCompromisedBanner(
+                message: punchState.errorMessage ?? 'Device compromised.',
+                onDismiss: () => ref.read(punchStateProvider.notifier).reset(),
               )
             else
               Builder(
@@ -857,6 +899,91 @@ class _StatusFeedbackState extends State<_StatusFeedback> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DeviceCompromisedBanner extends StatelessWidget {
+  final String message;
+  final VoidCallback onDismiss;
+
+  const _DeviceCompromisedBanner({
+    required this.message,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.shade400, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.withOpacity(0.15),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.red.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.gpp_bad,
+              size: 48,
+              color: Colors.red,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'DEVICE COMPROMISED',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              color: Colors.red,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.red,
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onDismiss,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Dismiss'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
