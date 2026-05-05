@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
 import '../../services/security_service.dart';
+import '../../providers/network_sync_provider.dart';
 import 'help_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -445,6 +447,101 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Divider(),
               const SizedBox(height: 16),
 
+              // ── Sync Status ──────────────────────────────────────────────
+              Consumer(builder: (context, ref, _) {
+                final syncState = ref.watch(syncStateProvider);
+                final pendingCount = syncState.pendingCount;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _StepIndicator(step: 0, title: 'Offline Sync', isActive: false),
+                    const SizedBox(height: 12),
+                    _Card(
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              pendingCount > 0
+                                  ? (syncState.status == SyncStatus.syncing ? Icons.sync : Icons.cloud_upload)
+                                  : Icons.cloud_done,
+                              color: pendingCount > 0
+                                  ? (syncState.status == SyncStatus.syncing ? Colors.blue : Colors.orange)
+                                  : Colors.green,
+                              size: 28,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    syncState.status == SyncStatus.syncing
+                                        ? 'Syncing...'
+                                        : pendingCount > 0
+                                            ? '$pendingCount Punch(es) Pending Sync'
+                                            : 'All Punches Synced',
+                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                                  ),
+                                  if (syncState.lastSyncAt != null)
+                                    Text(
+                                      'Last sync: ${_formatTime(syncState.lastSyncAt!)}',
+                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                  if (syncState.status == SyncStatus.error && syncState.lastError != null)
+                                    Text(
+                                      syncState.lastError!,
+                                      style: const TextStyle(fontSize: 11, color: Colors.red),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (syncState.status == SyncStatus.syncing)
+                              const SizedBox(
+                                width: 20, height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
+                              )
+                            else
+                              SizedBox(
+                                width: 48,
+                                height: 48,
+                                child: IconButton(
+                                  onPressed: () => ref.read(networkSyncProvider).syncOfflinePunches(),
+                                  icon: const Icon(Icons.sync),
+                                  tooltip: 'Force sync now',
+                                  color: const Color(0xFF009CA6),
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (pendingCount > 0) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => ref.read(networkSyncProvider).syncOfflinePunches(),
+                              icon: const Icon(Icons.cloud_upload, size: 18),
+                              label: Text('Sync $pendingCount Punch(es) Now'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.orange.shade700,
+                                side: BorderSide(color: Colors.orange.shade300),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                );
+              }),
+
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+
               // ── Tools ────────────────────────────────────────────────────
               _StepIndicator(step: 0, title: 'Tools', isActive: false),
               const SizedBox(height: 12),
@@ -525,6 +622,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
   }
+}
+
+// ─── Helper ──────────────────────────────────────────────────────────────────
+
+String _formatTime(DateTime dt) {
+  final hour = dt.hour.toString().padLeft(2, '0');
+  final minute = dt.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

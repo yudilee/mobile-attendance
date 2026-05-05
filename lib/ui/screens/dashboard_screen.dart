@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../database/app_database.dart';
 import '../../services/attendance_calculator.dart';
 import '../../providers/punch_provider.dart';
+import '../../providers/network_sync_provider.dart';
 import '../theme.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -11,6 +12,8 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final db = ref.watch(appDatabaseProvider);
+    final syncState = ref.watch(syncStateProvider);
+    final pendingCount = syncState.pendingCount;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Dashboard')),
@@ -19,6 +22,14 @@ class DashboardScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Sync status card (visible when there are pending punches)
+            if (pendingCount > 0 || syncState.status == SyncStatus.syncing || syncState.status == SyncStatus.error)
+              _SyncStatusCard(
+                syncState: syncState,
+                onSyncTap: () => ref.read(networkSyncProvider).syncOfflinePunches(),
+              ),
+            if (pendingCount > 0 || syncState.status == SyncStatus.syncing || syncState.status == SyncStatus.error)
+              const SizedBox(height: 16),
             // Today's summary card
             _TodaySummaryCard(db: db),
             const SizedBox(height: 16),
@@ -31,6 +42,100 @@ class DashboardScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+// ─── Sync Status Card ──────────────────────────────────────────────────────
+
+class _SyncStatusCard extends StatelessWidget {
+  final SyncState syncState;
+  final VoidCallback onSyncTap;
+
+  const _SyncStatusCard({
+    required this.syncState,
+    required this.onSyncTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    late final Color bgColor;
+    late final Color borderColor;
+    late final IconData icon;
+    final String title;
+    final String subtitle;
+
+    switch (syncState.status) {
+      case SyncStatus.syncing:
+        bgColor = Colors.blue.shade50;
+        borderColor = Colors.blue;
+        icon = Icons.sync;
+        title = 'Syncing...';
+        subtitle = '${syncState.pendingCount} punch(es) remaining';
+      case SyncStatus.allSynced:
+        bgColor = Colors.green.shade50;
+        borderColor = Colors.green;
+        icon = Icons.cloud_done;
+        title = 'All Synced';
+        subtitle = syncState.lastSyncAt != null
+            ? 'Last sync: ${_formatTime(syncState.lastSyncAt!)}'
+            : 'No pending punches';
+      case SyncStatus.error:
+        bgColor = Colors.red.shade50;
+        borderColor = Colors.red;
+        icon = Icons.cloud_off;
+        title = 'Sync Error';
+        subtitle = syncState.lastError ?? 'Unknown error';
+      default:
+        bgColor = Colors.orange.shade50;
+        borderColor = Colors.orange;
+        icon = Icons.cloud_upload;
+        title = '${syncState.pendingCount} Punch(es) Pending';
+        subtitle = 'Tap to sync now';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor.withOpacity(0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: borderColor, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: borderColor, fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: TextStyle(fontSize: 11, color: borderColor.withOpacity(0.8))),
+              ],
+            ),
+          ),
+          if (syncState.status == SyncStatus.syncing)
+            const SizedBox(
+              width: 18, height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
+            )
+          else
+            IconButton(
+              onPressed: onSyncTap,
+              icon: const Icon(Icons.refresh, size: 20),
+              color: borderColor,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 }
 

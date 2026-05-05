@@ -36,6 +36,7 @@ class OfflineSyncService {
         timestamp: punchData['timestamp'] as String,
         tzOffsetMinutes: Value(punchData['tz_offset_minutes'] as int? ?? 420),
         gpsTimeValidated: Value(punchData['gps_time_validated'] as bool? ?? false),
+        selfieBase64: Value(punchData['selfie_base64'] as String?),
         syncStatus: const Value('pending'),
       ),
     );

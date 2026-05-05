@@ -98,6 +98,12 @@ class $OfflinePunchesTable extends OfflinePunches
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("gps_time_validated" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _selfieBase64Meta =
+      const VerificationMeta('selfieBase64');
+  @override
+  late final GeneratedColumn<String> selfieBase64 = GeneratedColumn<String>(
+      'selfie_base64', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _syncStatusMeta =
       const VerificationMeta('syncStatus');
   @override
@@ -154,6 +160,7 @@ class $OfflinePunchesTable extends OfflinePunches
         timestamp,
         tzOffsetMinutes,
         gpsTimeValidated,
+        selfieBase64,
         syncStatus,
         retryCount,
         errorMessage,
@@ -246,6 +253,12 @@ class $OfflinePunchesTable extends OfflinePunches
           gpsTimeValidated.isAcceptableOrUnknown(
               data['gps_time_validated']!, _gpsTimeValidatedMeta));
     }
+    if (data.containsKey('selfie_base64')) {
+      context.handle(
+          _selfieBase64Meta,
+          selfieBase64.isAcceptableOrUnknown(
+              data['selfie_base64']!, _selfieBase64Meta));
+    }
     if (data.containsKey('sync_status')) {
       context.handle(
           _syncStatusMeta,
@@ -311,6 +324,8 @@ class $OfflinePunchesTable extends OfflinePunches
           .read(DriftSqlType.int, data['${effectivePrefix}tz_offset_minutes'])!,
       gpsTimeValidated: attachedDatabase.typeMapping.read(
           DriftSqlType.bool, data['${effectivePrefix}gps_time_validated'])!,
+      selfieBase64: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}selfie_base64']),
       syncStatus: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}sync_status'])!,
       retryCount: attachedDatabase.typeMapping
@@ -345,6 +360,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
   final String timestamp;
   final int tzOffsetMinutes;
   final bool gpsTimeValidated;
+  final String? selfieBase64;
   final String syncStatus;
   final int retryCount;
   final String? errorMessage;
@@ -364,6 +380,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
       required this.timestamp,
       required this.tzOffsetMinutes,
       required this.gpsTimeValidated,
+      this.selfieBase64,
       required this.syncStatus,
       required this.retryCount,
       this.errorMessage,
@@ -385,6 +402,9 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
     map['timestamp'] = Variable<String>(timestamp);
     map['tz_offset_minutes'] = Variable<int>(tzOffsetMinutes);
     map['gps_time_validated'] = Variable<bool>(gpsTimeValidated);
+    if (!nullToAbsent || selfieBase64 != null) {
+      map['selfie_base64'] = Variable<String>(selfieBase64);
+    }
     map['sync_status'] = Variable<String>(syncStatus);
     map['retry_count'] = Variable<int>(retryCount);
     if (!nullToAbsent || errorMessage != null) {
@@ -414,6 +434,9 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
       timestamp: Value(timestamp),
       tzOffsetMinutes: Value(tzOffsetMinutes),
       gpsTimeValidated: Value(gpsTimeValidated),
+      selfieBase64: selfieBase64 == null && nullToAbsent
+          ? const Value.absent()
+          : Value(selfieBase64),
       syncStatus: Value(syncStatus),
       retryCount: Value(retryCount),
       errorMessage: errorMessage == null && nullToAbsent
@@ -445,6 +468,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
       timestamp: serializer.fromJson<String>(json['timestamp']),
       tzOffsetMinutes: serializer.fromJson<int>(json['tzOffsetMinutes']),
       gpsTimeValidated: serializer.fromJson<bool>(json['gpsTimeValidated']),
+      selfieBase64: serializer.fromJson<String?>(json['selfieBase64']),
       syncStatus: serializer.fromJson<String>(json['syncStatus']),
       retryCount: serializer.fromJson<int>(json['retryCount']),
       errorMessage: serializer.fromJson<String?>(json['errorMessage']),
@@ -469,6 +493,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
       'timestamp': serializer.toJson<String>(timestamp),
       'tzOffsetMinutes': serializer.toJson<int>(tzOffsetMinutes),
       'gpsTimeValidated': serializer.toJson<bool>(gpsTimeValidated),
+      'selfieBase64': serializer.toJson<String?>(selfieBase64),
       'syncStatus': serializer.toJson<String>(syncStatus),
       'retryCount': serializer.toJson<int>(retryCount),
       'errorMessage': serializer.toJson<String?>(errorMessage),
@@ -491,6 +516,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
           String? timestamp,
           int? tzOffsetMinutes,
           bool? gpsTimeValidated,
+          Value<String?> selfieBase64 = const Value.absent(),
           String? syncStatus,
           int? retryCount,
           Value<String?> errorMessage = const Value.absent(),
@@ -510,6 +536,8 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
         timestamp: timestamp ?? this.timestamp,
         tzOffsetMinutes: tzOffsetMinutes ?? this.tzOffsetMinutes,
         gpsTimeValidated: gpsTimeValidated ?? this.gpsTimeValidated,
+        selfieBase64:
+            selfieBase64.present ? selfieBase64.value : this.selfieBase64,
         syncStatus: syncStatus ?? this.syncStatus,
         retryCount: retryCount ?? this.retryCount,
         errorMessage:
@@ -544,6 +572,9 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
       gpsTimeValidated: data.gpsTimeValidated.present
           ? data.gpsTimeValidated.value
           : this.gpsTimeValidated,
+      selfieBase64: data.selfieBase64.present
+          ? data.selfieBase64.value
+          : this.selfieBase64,
       syncStatus:
           data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
       retryCount:
@@ -573,6 +604,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
           ..write('timestamp: $timestamp, ')
           ..write('tzOffsetMinutes: $tzOffsetMinutes, ')
           ..write('gpsTimeValidated: $gpsTimeValidated, ')
+          ..write('selfieBase64: $selfieBase64, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('retryCount: $retryCount, ')
           ..write('errorMessage: $errorMessage, ')
@@ -597,6 +629,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
       timestamp,
       tzOffsetMinutes,
       gpsTimeValidated,
+      selfieBase64,
       syncStatus,
       retryCount,
       errorMessage,
@@ -619,6 +652,7 @@ class OfflinePunche extends DataClass implements Insertable<OfflinePunche> {
           other.timestamp == this.timestamp &&
           other.tzOffsetMinutes == this.tzOffsetMinutes &&
           other.gpsTimeValidated == this.gpsTimeValidated &&
+          other.selfieBase64 == this.selfieBase64 &&
           other.syncStatus == this.syncStatus &&
           other.retryCount == this.retryCount &&
           other.errorMessage == this.errorMessage &&
@@ -640,6 +674,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
   final Value<String> timestamp;
   final Value<int> tzOffsetMinutes;
   final Value<bool> gpsTimeValidated;
+  final Value<String?> selfieBase64;
   final Value<String> syncStatus;
   final Value<int> retryCount;
   final Value<String?> errorMessage;
@@ -659,6 +694,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
     this.timestamp = const Value.absent(),
     this.tzOffsetMinutes = const Value.absent(),
     this.gpsTimeValidated = const Value.absent(),
+    this.selfieBase64 = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.retryCount = const Value.absent(),
     this.errorMessage = const Value.absent(),
@@ -679,6 +715,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
     required String timestamp,
     this.tzOffsetMinutes = const Value.absent(),
     this.gpsTimeValidated = const Value.absent(),
+    this.selfieBase64 = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.retryCount = const Value.absent(),
     this.errorMessage = const Value.absent(),
@@ -705,6 +742,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
     Expression<String>? timestamp,
     Expression<int>? tzOffsetMinutes,
     Expression<bool>? gpsTimeValidated,
+    Expression<String>? selfieBase64,
     Expression<String>? syncStatus,
     Expression<int>? retryCount,
     Expression<String>? errorMessage,
@@ -725,6 +763,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
       if (timestamp != null) 'timestamp': timestamp,
       if (tzOffsetMinutes != null) 'tz_offset_minutes': tzOffsetMinutes,
       if (gpsTimeValidated != null) 'gps_time_validated': gpsTimeValidated,
+      if (selfieBase64 != null) 'selfie_base64': selfieBase64,
       if (syncStatus != null) 'sync_status': syncStatus,
       if (retryCount != null) 'retry_count': retryCount,
       if (errorMessage != null) 'error_message': errorMessage,
@@ -747,6 +786,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
       Value<String>? timestamp,
       Value<int>? tzOffsetMinutes,
       Value<bool>? gpsTimeValidated,
+      Value<String?>? selfieBase64,
       Value<String>? syncStatus,
       Value<int>? retryCount,
       Value<String?>? errorMessage,
@@ -766,6 +806,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
       timestamp: timestamp ?? this.timestamp,
       tzOffsetMinutes: tzOffsetMinutes ?? this.tzOffsetMinutes,
       gpsTimeValidated: gpsTimeValidated ?? this.gpsTimeValidated,
+      selfieBase64: selfieBase64 ?? this.selfieBase64,
       syncStatus: syncStatus ?? this.syncStatus,
       retryCount: retryCount ?? this.retryCount,
       errorMessage: errorMessage ?? this.errorMessage,
@@ -814,6 +855,9 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
     if (gpsTimeValidated.present) {
       map['gps_time_validated'] = Variable<bool>(gpsTimeValidated.value);
     }
+    if (selfieBase64.present) {
+      map['selfie_base64'] = Variable<String>(selfieBase64.value);
+    }
     if (syncStatus.present) {
       map['sync_status'] = Variable<String>(syncStatus.value);
     }
@@ -850,6 +894,7 @@ class OfflinePunchesCompanion extends UpdateCompanion<OfflinePunche> {
           ..write('timestamp: $timestamp, ')
           ..write('tzOffsetMinutes: $tzOffsetMinutes, ')
           ..write('gpsTimeValidated: $gpsTimeValidated, ')
+          ..write('selfieBase64: $selfieBase64, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('retryCount: $retryCount, ')
           ..write('errorMessage: $errorMessage, ')
@@ -2134,6 +2179,7 @@ typedef $$OfflinePunchesTableCreateCompanionBuilder = OfflinePunchesCompanion
   required String timestamp,
   Value<int> tzOffsetMinutes,
   Value<bool> gpsTimeValidated,
+  Value<String?> selfieBase64,
   Value<String> syncStatus,
   Value<int> retryCount,
   Value<String?> errorMessage,
@@ -2155,6 +2201,7 @@ typedef $$OfflinePunchesTableUpdateCompanionBuilder = OfflinePunchesCompanion
   Value<String> timestamp,
   Value<int> tzOffsetMinutes,
   Value<bool> gpsTimeValidated,
+  Value<String?> selfieBase64,
   Value<String> syncStatus,
   Value<int> retryCount,
   Value<String?> errorMessage,
@@ -2211,6 +2258,9 @@ class $$OfflinePunchesTableFilterComposer
   ColumnFilters<bool> get gpsTimeValidated => $composableBuilder(
       column: $table.gpsTimeValidated,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get selfieBase64 => $composableBuilder(
+      column: $table.selfieBase64, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => ColumnFilters(column));
@@ -2281,6 +2331,10 @@ class $$OfflinePunchesTableOrderingComposer
       column: $table.gpsTimeValidated,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get selfieBase64 => $composableBuilder(
+      column: $table.selfieBase64,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
 
@@ -2346,6 +2400,9 @@ class $$OfflinePunchesTableAnnotationComposer
   GeneratedColumn<bool> get gpsTimeValidated => $composableBuilder(
       column: $table.gpsTimeValidated, builder: (column) => column);
 
+  GeneratedColumn<String> get selfieBase64 => $composableBuilder(
+      column: $table.selfieBase64, builder: (column) => column);
+
   GeneratedColumn<String> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => column);
 
@@ -2404,6 +2461,7 @@ class $$OfflinePunchesTableTableManager extends RootTableManager<
             Value<String> timestamp = const Value.absent(),
             Value<int> tzOffsetMinutes = const Value.absent(),
             Value<bool> gpsTimeValidated = const Value.absent(),
+            Value<String?> selfieBase64 = const Value.absent(),
             Value<String> syncStatus = const Value.absent(),
             Value<int> retryCount = const Value.absent(),
             Value<String?> errorMessage = const Value.absent(),
@@ -2424,6 +2482,7 @@ class $$OfflinePunchesTableTableManager extends RootTableManager<
             timestamp: timestamp,
             tzOffsetMinutes: tzOffsetMinutes,
             gpsTimeValidated: gpsTimeValidated,
+            selfieBase64: selfieBase64,
             syncStatus: syncStatus,
             retryCount: retryCount,
             errorMessage: errorMessage,
@@ -2444,6 +2503,7 @@ class $$OfflinePunchesTableTableManager extends RootTableManager<
             required String timestamp,
             Value<int> tzOffsetMinutes = const Value.absent(),
             Value<bool> gpsTimeValidated = const Value.absent(),
+            Value<String?> selfieBase64 = const Value.absent(),
             Value<String> syncStatus = const Value.absent(),
             Value<int> retryCount = const Value.absent(),
             Value<String?> errorMessage = const Value.absent(),
@@ -2464,6 +2524,7 @@ class $$OfflinePunchesTableTableManager extends RootTableManager<
             timestamp: timestamp,
             tzOffsetMinutes: tzOffsetMinutes,
             gpsTimeValidated: gpsTimeValidated,
+            selfieBase64: selfieBase64,
             syncStatus: syncStatus,
             retryCount: retryCount,
             errorMessage: errorMessage,

@@ -180,6 +180,8 @@ class NetworkSyncManager {
       'tz_offset_minutes': p.tzOffsetMinutes,
       'gps_time_validated': p.gpsTimeValidated,
       'client_punch_id': p.clientPunchId,
+      if (p.selfieBase64 != null && p.selfieBase64!.isNotEmpty)
+        'selfie_base64': p.selfieBase64,
     }).toList();
 
     try {

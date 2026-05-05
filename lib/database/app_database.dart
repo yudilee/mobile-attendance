@@ -23,6 +23,7 @@ class OfflinePunches extends Table {
   TextColumn get timestamp => text()(); // ISO 8601 local time string
   IntColumn get tzOffsetMinutes => integer().withDefault(const Constant(420))();
   BoolColumn get gpsTimeValidated => boolean().withDefault(const Constant(false))();
+  TextColumn get selfieBase64 => text().nullable()(); // Base64 selfie for offline queue
 
   // Sync tracking
   TextColumn get syncStatus => text().withDefault(const Constant('pending'))();
@@ -79,7 +80,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration {
@@ -90,6 +91,9 @@ class AppDatabase extends _$AppDatabase {
       onUpgrade: (m, from, to) async {
         if (from < 2) {
           await m.addColumn(cachedConfig, cachedConfig.branchesJson);
+        }
+        if (from < 3) {
+          await m.addColumn(offlinePunches, offlinePunches.selfieBase64);
         }
       },
     );
