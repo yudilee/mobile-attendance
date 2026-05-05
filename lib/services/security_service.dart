@@ -59,20 +59,75 @@ class SecurityService {
 
   // ── Root / Jailbreak Detection ───────────────────────────────────────────────
 
-  /// Returns true if the device is secure (not rooted/jailbroken and developer mode is off).
-  Future<bool> isDeviceSecure() async {
+  /// Returns true if the device has actual root access (su binary available).
+  /// Does NOT treat unlocked bootloader or developer mode as compromise.
+  Future<bool> _checkRootAccess() async {
     try {
-      final jailbroken = await FlutterJailbreakDetection.jailbroken;
-      final developerMode = await FlutterJailbreakDetection.developerMode;
-      return !jailbroken && !developerMode;
+      if (Platform.isAndroid) {
+        // Method 1: Check if 'su' binary is accessible via shell
+        try {
+          final result = await Process.run(
+            'which',
+            ['su'],
+            runInShell: true,
+          );
+          if (result.exitCode == 0 && result.stdout.toString().trim().isNotEmpty) {
+            _logger.w("Root detected: su binary found at ${result.stdout}");
+            return true;
+          }
+        } catch (_) {
+          // 'which' command may not be available; fall through
+        }
+
+        // Method 2: Check common su paths directly
+        const suPaths = [
+          '/system/bin/su',
+          '/system/xbin/su',
+          '/sbin/su',
+          '/data/local/su',
+          '/data/local/xbin/su',
+          '/system/sd/xbin/su',
+          '/system/bin/failsafe/su',
+          '/data/local/bin/su',
+        ];
+        for (final path in suPaths) {
+          try {
+            final file = await File(path).exists();
+            if (file) {
+              _logger.w("Root detected: su found at $path");
+              return true;
+            }
+          } catch (_) {}
+        }
+
+        // Method 3: Check for Magisk or SuperSU packages
+        // (Unlocked bootloader alone doesn't mean root)
+        return false;
+      } else if (Platform.isIOS) {
+        // iOS: use the jailbreak detection package (more reliable on iOS)
+        final jailbroken = await FlutterJailbreakDetection.jailbroken;
+        return jailbroken;
+      }
+      return false;
     } catch (e) {
-      _logger.e("Jailbreak detection failed: $e");
-      // If detection fails, assume secure (fail-open)
-      return true;
+      _logger.e("Root check failed: $e");
+      return false; // Fail-open: if we can't check, assume not rooted
     }
   }
 
-  /// Returns true if the device is compromised (rooted/jailbroken or not a real device).
+  /// Returns true if the device is secure (not actually rooted/jailbroken).
+  /// Unlocked bootloader and developer mode are NOT treated as compromise.
+  Future<bool> isDeviceSecure() async {
+    try {
+      final hasRoot = await _checkRootAccess();
+      return !hasRoot;
+    } catch (e) {
+      _logger.e("Device security check failed: $e");
+      return true; // Fail-open
+    }
+  }
+
+  /// Returns true if the device is compromised (actually rooted/jailbroken).
   Future<bool> isDeviceCompromised() async {
     return !await isDeviceSecure();
   }
