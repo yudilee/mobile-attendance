@@ -6,6 +6,7 @@ import '../../providers/punch_provider.dart';
 import '../../providers/network_sync_provider.dart';
 import '../../services/app_settings.dart';
 import 'qr_scan_screen.dart';
+import 'nfc_scan_screen.dart';
 import 'selfie_screen.dart';
 import 'settings_screen.dart';
 
@@ -92,6 +93,21 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
         },
         onCancel: () {
           punchNotifier.reset();
+        },
+      );
+    }
+
+    // ── NFC required — show NFC scan screen ─────────────────────────────────
+    if (punchState.status == PunchStatus.nfcRequired &&
+        punchState.expectedNfcTagData != null) {
+      return NfcScanScreen(
+        expectedTagData: punchState.expectedNfcTagData!,
+        onSuccess: () {
+          punchNotifier.markNfcVerified();
+          punchNotifier.retryWithQR();
+        },
+        onCancel: () {
+          punchNotifier.resetNfcState();
         },
       );
     }

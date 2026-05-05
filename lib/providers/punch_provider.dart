@@ -27,7 +27,7 @@ final punchTypesProvider = StreamProvider<List<CachedPunchType>>((ref) {
 
 // ─── Punch State ──────────────────────────────────────────────────────────────
 
-enum PunchStatus { idle, loading, success, offline, error, qrRequired, selfieRequired }
+enum PunchStatus { idle, loading, success, offline, error, qrRequired, selfieRequired, nfcRequired }
 
 class PunchState {
   final PunchStatus status;
@@ -37,6 +37,9 @@ class PunchState {
   final bool qrRequired;
   final bool qrVerified;
   final String? expectedQrData;
+  final bool nfcRequired;
+  final bool nfcVerified;
+  final String? expectedNfcTagData;
   final bool selfieRequired;
   final bool selfieCaptured;
   final String? selfieBase64;
@@ -49,6 +52,9 @@ class PunchState {
     this.qrRequired = false,
     this.qrVerified = false,
     this.expectedQrData,
+    this.nfcRequired = false,
+    this.nfcVerified = false,
+    this.expectedNfcTagData,
     this.selfieRequired = false,
     this.selfieCaptured = false,
     this.selfieBase64,
@@ -64,6 +70,9 @@ class PunchState {
     bool? qrRequired,
     bool? qrVerified,
     String? expectedQrData,
+    bool? nfcRequired,
+    bool? nfcVerified,
+    String? expectedNfcTagData,
     bool? selfieRequired,
     bool? selfieCaptured,
     String? selfieBase64,
@@ -76,6 +85,9 @@ class PunchState {
       qrRequired: qrRequired ?? this.qrRequired,
       qrVerified: qrVerified ?? this.qrVerified,
       expectedQrData: expectedQrData ?? this.expectedQrData,
+      nfcRequired: nfcRequired ?? this.nfcRequired,
+      nfcVerified: nfcVerified ?? this.nfcVerified,
+      expectedNfcTagData: expectedNfcTagData ?? this.expectedNfcTagData,
       selfieRequired: selfieRequired ?? this.selfieRequired,
       selfieCaptured: selfieCaptured ?? this.selfieCaptured,
       selfieBase64: selfieBase64 ?? this.selfieBase64,
@@ -96,10 +108,13 @@ class PunchNotifier extends StateNotifier<PunchState> {
   /// Expected QR data extracted from device config (set externally).
   String? _expectedQrData;
 
-  /// The last punch type used (for QR retry).
+  /// Expected NFC tag data extracted from device config (set externally).
+  String? _expectedNfcTagData;
+
+  /// The last punch type used (for QR/NFC retry).
   String? _lastPunchType;
 
-  /// The last employee ID used (for QR retry).
+  /// The last employee ID used (for QR/NFC retry).
   String? _lastEmployeeId;
 
   /// The captured selfie base64 (set from SelfieScreen).
@@ -111,6 +126,11 @@ class PunchNotifier extends StateNotifier<PunchState> {
   /// Set the expected QR code data (called from UI before performPunch).
   void setExpectedQrData(String? data) {
     _expectedQrData = data;
+  }
+
+  /// Set the expected NFC tag data (called from UI before performPunch).
+  void setExpectedNfcTagData(String? data) {
+    _expectedNfcTagData = data;
   }
 
   /// Checks if the prior biometric authentication is still valid within the session window.
@@ -140,6 +160,11 @@ class PunchNotifier extends StateNotifier<PunchState> {
     state = state.copyWith(qrVerified: true, status: PunchStatus.idle);
   }
 
+  /// Mark NFC as verified and allow punch to proceed.
+  void markNfcVerified() {
+    state = state.copyWith(nfcVerified: true, status: PunchStatus.idle);
+  }
+
   /// Mark selfie as captured and allow punch to proceed.
   void setSelfieBase64(String base64) {
     _selfieBase64 = base64;
@@ -156,6 +181,16 @@ class PunchNotifier extends StateNotifier<PunchState> {
       qrRequired: false,
       qrVerified: false,
       expectedQrData: null,
+      status: PunchStatus.idle,
+    );
+  }
+
+  /// Reset NFC state (e.g., on cancel).
+  void resetNfcState() {
+    state = state.copyWith(
+      nfcRequired: false,
+      nfcVerified: false,
+      expectedNfcTagData: null,
       status: PunchStatus.idle,
     );
   }
@@ -196,6 +231,18 @@ class PunchNotifier extends StateNotifier<PunchState> {
           status: PunchStatus.qrRequired,
           qrRequired: true,
           expectedQrData: _expectedQrData,
+        );
+        return;
+      }
+
+      // ── Step B.6: NFC tag verification (if required) ─────────────────────
+      // Uses `_expectedNfcTagData` set externally via `setExpectedNfcTagData()` from UI.
+      final nfcEnabled = await AppSettings.getNFCEnabled();
+      if (nfcEnabled && !state.nfcVerified && _expectedNfcTagData != null && _expectedNfcTagData!.isNotEmpty) {
+        state = state.copyWith(
+          status: PunchStatus.nfcRequired,
+          nfcRequired: true,
+          expectedNfcTagData: _expectedNfcTagData,
         );
         return;
       }
