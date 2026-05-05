@@ -4,6 +4,21 @@ allprojects {
         mavenCentral()
     }
 }
+gradle.afterProject { project ->
+    if (project.hasProperty('android')) {
+        project.android {
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+    }
+    project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        it.kotlinOptions {
+            jvmTarget = "17"
+        }
+    }
+}
 
 rootProject.buildDir = "../build"
 subprojects {
@@ -15,10 +30,26 @@ subprojects {
 
 subprojects {
     project.ext.set("flutter", [
-        compileSdkVersion: 34,
-        minSdkVersion: 21,
-        targetSdkVersion: 34
+        compileSdkVersion: 36,
+        minSdkVersion: 23,
+        targetSdkVersion: 36
     ])
+}
+subprojects {
+    project.pluginManager.withPlugin('com.android.library') {
+        project.android {
+            if (namespace == null) {
+                namespace project.group
+            }
+        }
+    }
+    project.pluginManager.withPlugin('com.android.application') {
+        project.android {
+            if (namespace == null) {
+                namespace project.group
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {
