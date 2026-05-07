@@ -88,6 +88,29 @@ class OfflineSyncService {
     _logger.i('Checked for expired punches (>24h old)');
   }
 
+  /// Record a punch that was successfully submitted online into local history.
+  /// This ensures the dashboard and history screen show the punch immediately
+  /// without requiring an offline sync round-trip.
+  Future<void> recordSyncedPunch({
+    required String clientPunchId,
+    required String employeeId,
+    required String punchType,
+    required String timestamp,
+    int? serverLogId,
+  }) async {
+    await _db.upsertHistory(
+      PunchHistoryCompanion.insert(
+        clientPunchId: clientPunchId,
+        employeeId: employeeId,
+        punchType: punchType,
+        timestamp: timestamp,
+        syncStatus: 'synced',
+        serverLogId: Value(serverLogId),
+      ),
+    );
+    _logger.i('Recorded synced punch to local history: $punchType at $timestamp');
+  }
+
   /// Get punch history for the history screen.
   Future<List<PunchHistoryData>> getPunchHistory({int limit = 50}) =>
       _db.getRecentHistory(limit: limit);

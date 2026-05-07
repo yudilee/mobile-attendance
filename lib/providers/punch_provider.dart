@@ -304,6 +304,16 @@ class PunchNotifier extends StateNotifier<PunchState> {
         clientPunchId: clientPunchId,
       );
 
+      // ── Record to local history so dashboard/history screen reflects it ──
+      final serverLogId = response['log_id'] as int?;
+      await _offlineSync.recordSyncedPunch(
+        clientPunchId: clientPunchId,
+        employeeId: employeeId,
+        punchType: punchType,
+        timestamp: timeResult.isoString,
+        serverLogId: serverLogId,
+      );
+
       state = PunchState(status: PunchStatus.success, result: response);
     } on NetworkException {
       if (punchPayload != null) {
