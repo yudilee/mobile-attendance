@@ -146,10 +146,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _regSuccess = true;
         });
         
-        // Cache config for offline use
-        final offlineSync = ref.read(networkSyncProvider.notifier);
-        // Note: Ideally we'd call cacheConfig, but since it's a provider we can just trigger a manual sync or ignore
-        
       } catch (e) {
         setState(() {
           _regStatus = 'error';

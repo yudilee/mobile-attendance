@@ -125,7 +125,8 @@ class ApiService {
     required String deviceUuid,
     String? deviceLabel,
   }) async {
-    final response = await _dio.post(
+    final dio = await _getDio();
+    final response = await dio.post(
       '/api/v1/device-onboard',
       data: {
         'token': token,
