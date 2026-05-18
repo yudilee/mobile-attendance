@@ -49,12 +49,11 @@ class AttendanceCalculator {
     DateTime? clockIn, clockOut;
     for (final punch in todayPunches) {
       final t = DateTime.parse(punch.timestamp);
+      final pType = punch.punchType.toLowerCase();
       // Assuming punch_type 'in' or 'out' - adjust based on your punch type codes
-      if (punch.punchType.contains('in') ||
-          punch.punchType.contains('1')) {
+      if (pType.contains('in') || pType.contains('1')) {
         if (clockIn == null || t.isBefore(clockIn)) clockIn = t;
-      } else if (punch.punchType.contains('out') ||
-          punch.punchType.contains('2')) {
+      } else if (pType.contains('out') || pType.contains('2')) {
         if (clockOut == null || t.isAfter(clockOut)) clockOut = t;
       }
     }
@@ -129,10 +128,10 @@ class AttendanceCalculator {
       DateTime? dayIn, dayOut;
       for (final p in punches) {
         final pt = DateTime.parse(p.timestamp);
-        if (p.punchType.contains('in') || p.punchType.contains('1')) {
+        final pType = p.punchType.toLowerCase();
+        if (pType.contains('in') || pType.contains('1')) {
           if (dayIn == null || pt.isBefore(dayIn)) dayIn = pt;
-        } else if (p.punchType.contains('out') ||
-            p.punchType.contains('2')) {
+        } else if (pType.contains('out') || pType.contains('2')) {
           if (dayOut == null || pt.isAfter(dayOut)) dayOut = pt;
         }
       }
@@ -196,11 +195,11 @@ class AttendanceCalculator {
       DateTime? dayIn, dayOut;
       for (final p in punches) {
         final pt = DateTime.parse(p.timestamp);
-        if (p.punchType.contains('in') || p.punchType.contains('1')) {
+        final pType = p.punchType.toLowerCase();
+        if (pType.contains('in') || pType.contains('1')) {
           if (dayIn == null || pt.isBefore(dayIn)) dayIn = pt;
           if (pt.hour >= 9) late++;
-        } else if (p.punchType.contains('out') ||
-            p.punchType.contains('2')) {
+        } else if (pType.contains('out') || pType.contains('2')) {
           if (dayOut == null || pt.isAfter(dayOut)) dayOut = pt;
         }
       }

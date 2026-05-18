@@ -199,7 +199,11 @@ class NetworkSyncManager {
           _logger.i('✅ Synced punch ${punch.id} (${punch.punchType} at ${punch.timestamp})');
         } else {
           final error = result['error'] as String? ?? 'Unknown error';
-          if (_isPermanentError(error)) {
+          if (error.toLowerCase().contains('duplicate')) {
+            // It was already recorded as a duplicate within 5 minutes, mark it as synced locally.
+            await _offlineSync.markSynced(punch.id, 0);
+            _logger.i('✅ Synced punch (duplicate) ${punch.id} (${punch.punchType} at ${punch.timestamp})');
+          } else if (_isPermanentError(error)) {
             // Mark as permanent failure — won't retry (e.g. geofence, mock location, biometric)
             await _offlineSync.markPermanentFailure(punch.id, error);
             _logger.w('⚠️ Permanent failure for punch ${punch.id}: $error');

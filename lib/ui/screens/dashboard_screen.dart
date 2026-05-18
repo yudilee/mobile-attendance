@@ -1,27 +1,75 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../database/app_database.dart';
 import '../../services/attendance_calculator.dart';
 import '../../providers/punch_provider.dart';
 import '../../providers/network_sync_provider.dart';
+import '../../services/app_settings.dart';
 import '../theme.dart';
+import 'history_screen.dart'; // Import to access punchHistoryProvider
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  String _employeeId = 'Employee';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEmployeeProfile();
+  }
+
+  Future<void> _loadEmployeeProfile() async {
+    final id = await AppSettings.getEmployeeId();
+    final name = await AppSettings.getEmployeeName();
+    if (id.isNotEmpty) {
+      setState(() {
+        _employeeId = name.isNotEmpty ? name : id;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final db = ref.watch(appDatabaseProvider);
     final syncState = ref.watch(syncStateProvider);
     final pendingCount = syncState.pendingCount;
 
+    // Watch punch history so dashboard rebuilds when punches are added/synced
+    ref.watch(punchHistoryProvider);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Dashboard')),
+      appBar: AppBar(
+        title: const Text('Dashboard', style: TextStyle(fontWeight: FontWeight.w700)),
+        elevation: 0,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 20, top: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Good Morning,',
+                    style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                  ),
+                  Text(
+                    _employeeId,
+                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppTheme.textMain),
+                  ),
+                ],
+              ),
+            ),
             // Sync status card (visible when there are pending punches)
             if (pendingCount > 0 || syncState.status == SyncStatus.syncing || syncState.status == SyncStatus.error)
               _SyncStatusCard(
@@ -209,7 +257,7 @@ class _TodaySummaryCard extends ConsumerWidget {
                                   : 'Present',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            fontSize: 12,
+                            fontSize: 14,
                             color: !summary.isPresentToday
                                 ? Colors.grey
                                 : summary.isLateToday
@@ -222,11 +270,16 @@ class _TodaySummaryCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 if (isLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: CircularProgressIndicator(
-                          color: AppTheme.primaryTeal),
+                  Shimmer.fromColors(
+                    baseColor: Colors.grey.shade200,
+                    highlightColor: Colors.grey.shade100,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(width: 150, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)),
+                        Container(width: double.infinity, height: 24, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
+                        Container(width: 200, height: 24, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
+                      ],
                     ),
                   )
                 else if (summary != null) ...[
@@ -235,7 +288,8 @@ class _TodaySummaryCard extends ConsumerWidget {
                     _formatDate(DateTime.now()),
                     style: TextStyle(
                       color: AppTheme.textMuted,
-                      fontSize: 13,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -279,8 +333,8 @@ class _TodaySummaryCard extends ConsumerWidget {
                             'Overtime: ${_formatDuration(summary.todayWorkDuration! - const Duration(hours: 8))}',
                             style: const TextStyle(
                               color: Colors.orange,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
                             ),
                           ),
                         ],
@@ -292,11 +346,11 @@ class _TodaySummaryCard extends ConsumerWidget {
                       child: Row(
                         children: [
                           const Icon(Icons.info_outline,
-                              color: Colors.grey, size: 16),
+                              color: Colors.grey, size: 18),
                           const SizedBox(width: 8),
                           const Text(
                             'No punch recorded today',
-                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                            style: TextStyle(color: Colors.grey, fontSize: 15),
                           ),
                         ],
                       ),
@@ -393,11 +447,26 @@ class _WeeklyOverviewCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 if (isLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: CircularProgressIndicator(
-                          color: AppTheme.primaryTeal),
+                  Shimmer.fromColors(
+                    baseColor: Colors.grey.shade200,
+                    highlightColor: Colors.grey.shade100,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Container(width: 60, height: 40, color: Colors.white),
+                            Container(width: 60, height: 40, color: Colors.white),
+                            Container(width: 80, height: 40, color: Colors.white),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List.generate(5, (_) => Container(width: 32, height: 48, color: Colors.white)),
+                        ),
+                      ],
                     ),
                   )
                 else if (summary != null) ...[
@@ -584,11 +653,19 @@ class _MonthlyStatsCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 if (isLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: CircularProgressIndicator(
-                          color: AppTheme.primaryTeal),
+                  Shimmer.fromColors(
+                    baseColor: Colors.grey.shade200,
+                    highlightColor: Colors.grey.shade100,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List.generate(3, (_) => Container(width: 80, height: 60, color: Colors.white)),
+                        ),
+                        const SizedBox(height: 24),
+                        Container(width: double.infinity, height: 16, color: Colors.white),
+                      ],
                     ),
                   )
                 else if (summary != null) ...[
@@ -637,7 +714,7 @@ class _MonthlyStatsCard extends ConsumerWidget {
                         'Avg. ${summary.averageWorkHours.toStringAsFixed(1)} hrs/day',
                         style: TextStyle(
                           color: AppTheme.textMuted,
-                          fontSize: 13,
+                          fontSize: 15,
                         ),
                       ),
                       const Spacer(),
@@ -645,7 +722,7 @@ class _MonthlyStatsCard extends ConsumerWidget {
                         '${summary.totalWorkHours.toStringAsFixed(1)} total hrs',
                         style: TextStyle(
                           color: AppTheme.textMuted,
-                          fontSize: 13,
+                          fontSize: 15,
                         ),
                       ),
                     ],
@@ -770,15 +847,16 @@ class _StatRow extends StatelessWidget {
           label,
           style: const TextStyle(
             color: AppTheme.textMuted,
-            fontSize: 13,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const Spacer(),
         Text(
           value,
           style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
           ),
         ),
       ],
@@ -805,16 +883,18 @@ class _MiniStat extends StatelessWidget {
         Text(
           value,
           style: TextStyle(
-            fontSize: 22,
+            fontSize: 26,
             fontWeight: FontWeight.w800,
             color: color,
           ),
         ),
+        const SizedBox(height: 4),
         Text(
           label,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 13,
             color: AppTheme.textMuted,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -850,16 +930,18 @@ class _StatBox extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 24,
               fontWeight: FontWeight.w800,
               color: color,
             ),
           ),
+          const SizedBox(height: 2),
           Text(
             label,
             style: TextStyle(
-              fontSize: 10,
-              color: color.withOpacity(0.8),
+              fontSize: 12,
+              color: color.withOpacity(0.9),
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -891,8 +973,9 @@ class _LegendItem extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 10,
+            fontSize: 12,
             color: AppTheme.textMuted,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],

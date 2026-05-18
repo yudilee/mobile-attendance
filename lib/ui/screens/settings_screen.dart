@@ -107,6 +107,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final branches = result['branches'] as List<dynamic>? ?? [];
       final deviceCount = result['device_count'] as int? ?? 1;
       final maxDevices = result['max_devices'] as int? ?? 5;
+      final empName = result['employee_name'] as String?;
+      
+      if (empName != null && empName.isNotEmpty) {
+        await AppSettings.setEmployeeName(empName);
+      }
 
       String message;
       bool success;

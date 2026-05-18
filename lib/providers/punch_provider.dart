@@ -290,19 +290,34 @@ class PunchNotifier extends StateNotifier<PunchState> {
       };
 
       // ── Step G: Submit to server ──────────────────────────────────────────
-      final response = await _api.submitPunch(
-        employeeId: employeeId,
-        deviceUuid: uuid,
-        lat: position.latitude,
-        lon: position.longitude,
-        isMocked: position.isMocked,
-        biometricVerified: biometricVerified,
-        punchType: punchType,
-        timestamp: timeResult.isoString,
-        tzOffsetMinutes: timeResult.tzOffsetMinutes,
-        gpsValidated: timeResult.gpsValidated,
-        clientPunchId: clientPunchId,
-      );
+      Map<String, dynamic> response;
+      try {
+        response = await _api.submitPunch(
+          employeeId: employeeId,
+          deviceUuid: uuid,
+          lat: position.latitude,
+          lon: position.longitude,
+          isMocked: position.isMocked,
+          biometricVerified: biometricVerified,
+          punchType: punchType,
+          timestamp: timeResult.isoString,
+          tzOffsetMinutes: timeResult.tzOffsetMinutes,
+          gpsValidated: timeResult.gpsValidated,
+          clientPunchId: clientPunchId,
+        );
+      } catch (submitError) {
+        if (submitError.toString().toLowerCase().contains('duplicate')) {
+          // If it's a duplicate, the server already recorded a punch successfully!
+          // We treat this as a success so the local UI updates.
+          response = {
+            'status': 'duplicate',
+            'message': submitError.toString().replaceFirst('Exception: ', ''),
+            'log_id': null,
+          };
+        } else {
+          rethrow;
+        }
+      }
 
       // ── Record to local history so dashboard/history screen reflects it ──
       final serverLogId = response['log_id'] as int?;
@@ -390,6 +405,11 @@ final deviceConfigProvider = FutureProvider<Map<String, dynamic>>((ref) async {
     );
     // Cache config for offline use
     await offlineSync.cacheConfig(config);
+
+    if (config['employee_name'] != null) {
+      await AppSettings.setEmployeeName(config['employee_name'] as String);
+    }
+
     
     // Also fetch and cache punch types
     try {

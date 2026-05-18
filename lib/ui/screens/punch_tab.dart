@@ -9,6 +9,7 @@ import 'qr_scan_screen.dart';
 import 'nfc_scan_screen.dart';
 import 'selfie_screen.dart';
 import 'settings_screen.dart';
+import 'package:flutter/services.dart';
 
 class PunchTab extends ConsumerStatefulWidget {
   const PunchTab({super.key});
@@ -680,7 +681,7 @@ class _SetupStep {
   const _SetupStep({required this.icon, required this.label, required this.done});
 }
 
-class _PunchButton extends StatelessWidget {
+class _PunchButton extends StatefulWidget {
   final String label;
   final IconData icon;
   final Color color;
@@ -698,68 +699,128 @@ class _PunchButton extends StatelessWidget {
   });
 
   @override
+  State<_PunchButton> createState() => _PunchButtonState();
+}
+
+class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    if (widget.enabled && !widget.loading) {
+      _controller.forward();
+      HapticFeedback.lightImpact();
+    }
+  }
+
+  void _handleTapUp(TapUpDetails details) {
+    if (widget.enabled && !widget.loading) {
+      _controller.reverse();
+    }
+  }
+
+  void _handleTapCancel() {
+    if (widget.enabled && !widget.loading) {
+      _controller.reverse();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final effectiveColor = enabled ? color : Colors.grey;
+    final effectiveColor = widget.enabled ? widget.color : Colors.grey;
     final gradient = LinearGradient(
       colors: [effectiveColor, effectiveColor.withBlue((effectiveColor.blue + 30).clamp(0, 255))],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
     );
 
-    return Container(
-      width: double.infinity,
-      height: 70,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: gradient,
-        boxShadow: [
-          BoxShadow(
-            color: effectiveColor.withOpacity(enabled ? 0.3 : 0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
+    return AnimatedBuilder(
+      animation: _scaleAnimation,
+      builder: (context, child) => Transform.scale(
+        scale: _scaleAnimation.value,
+        child: child,
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: enabled && !loading ? onPressed : null,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: double.infinity,
+        height: 75,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: gradient,
+          boxShadow: [
+            BoxShadow(
+              color: effectiveColor.withOpacity(widget.enabled ? 0.35 : 0.1),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTapDown: _handleTapDown,
+            onTapUp: _handleTapUp,
+            onTapCancel: _handleTapCancel,
+            onTap: () {
+              if (widget.enabled && !widget.loading) {
+                HapticFeedback.mediumImpact();
+                widget.onPressed();
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: widget.loading
+                        ? const SizedBox(
+                            width: 28, height: 28,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 3,
+                            ),
+                          )
+                        : Icon(widget.icon, color: Colors.white, size: 28),
                   ),
-                  child: loading
-                      ? const SizedBox(
-                          width: 28, height: 28,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 3,
-                          ),
-                        )
-                      : Icon(icon, color: Colors.white, size: 28),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Text(
-                    loading ? 'Processing...' : label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.2,
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Text(
+                      widget.loading ? 'Processing...' : widget.label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                      ),
                     ),
                   ),
-                ),
-                if (!loading)
-                  const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
-              ],
+                  if (!widget.loading)
+                    const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 20),
+                ],
+              ),
             ),
           ),
         ),

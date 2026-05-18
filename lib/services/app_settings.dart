@@ -7,6 +7,7 @@ class AppSettings {
   static const _keyEmployeeId = 'employee_id';
   static const _keyServerUrl = 'server_url';
   static const _keyDeviceLabel = 'device_label';
+  static const _keyEmployeeName = 'employee_name';
   static const _keyApiKey = 'api_key'; // stored in secure storage
   static const _keyCertificatePinEnabled = 'certificate_pin_enabled';
   static const _keyBiometricSessionSeconds = 'biometric_session_seconds';
@@ -24,6 +25,12 @@ class AppSettings {
 
   static Future<void> setEmployeeId(String id) async =>
       (await _prefs()).setString(_keyEmployeeId, id.trim());
+
+  static Future<String> getEmployeeName() async =>
+      (await _prefs()).getString(_keyEmployeeName) ?? '';
+
+  static Future<void> setEmployeeName(String name) async =>
+      (await _prefs()).setString(_keyEmployeeName, name.trim());
 
   static Future<String> getServerUrl() async =>
       (await _prefs()).getString(_keyServerUrl) ?? defaultServerUrl;
