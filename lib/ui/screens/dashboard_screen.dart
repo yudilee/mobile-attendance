@@ -9,7 +9,20 @@ import '../../services/app_settings.dart';
 import '../theme.dart';
 import 'history_screen.dart'; // Import to access punchHistoryProvider
 
+
+final userProfileProvider = FutureProvider<String>((ref) async {
+  // We can force this provider to refresh when config changes
+  // by depending on deviceConfigProvider if needed, but since it's cached, 
+  // we'll just read from AppSettings
+  final name = await AppSettings.getEmployeeName();
+  final id = await AppSettings.getEmployeeId();
+  if (name.isNotEmpty) return name;
+  if (id.isNotEmpty) return id;
+  return 'Employee';
+});
+
 class DashboardScreen extends ConsumerStatefulWidget {
+
   const DashboardScreen({super.key});
 
   @override

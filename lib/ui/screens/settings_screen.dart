@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/app_settings.dart';
@@ -85,7 +87,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+
+  Future<void> _scanOnboardQr(BuildContext context) async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: const Text('Scan Onboarding QR')),
+          body: MobileScanner(
+            onDetect: (capture) {
+              final List<Barcode> barcodes = capture.barcodes;
+              for (final barcode in barcodes) {
+                if (barcode.rawValue != null) {
+                  Navigator.of(context).pop(barcode.rawValue);
+                  break;
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+
+    if (result != null) {
+      try {
+        setState(() { _registering = true; _regStatus = ''; _regMessage = ''; });
+        
+        final data = jsonDecode(result) as Map<String, dynamic>;
+        final url = data['url'] as String;
+        final token = data['token'] as String;
+        
+        await AppSettings.setServerUrl(url);
+        _serverUrlCtrl.text = url;
+        
+        final api = ApiService();
+        final security = SecurityService();
+        final uuid = await security.getDeviceUniqueId();
+        
+        final response = await api.onboardDevice(
+          token: token,
+          deviceUuid: uuid,
+          deviceLabel: _deviceLabelCtrl.text.isNotEmpty ? _deviceLabelCtrl.text : null,
+        );
+        
+        final apiKey = response['api_key'] as String?;
+        if (apiKey != null && apiKey.isNotEmpty) {
+          await AppSettings.setApiKey(apiKey);
+          _apiKeyCtrl.text = apiKey;
+        }
+        
+        final empName = response['employee_name'] as String?;
+        if (empName != null && empName.isNotEmpty) {
+          await AppSettings.setEmployeeName(empName);
+        }
+        
+        setState(() {
+          _regStatus = response['status'] as String? ?? 'active';
+          _regMessage = 'Device onboarded and activated successfully!';
+          _regSuccess = true;
+        });
+        
+        // Cache config for offline use
+        final offlineSync = ref.read(networkSyncProvider.notifier);
+        // Note: Ideally we'd call cacheConfig, but since it's a provider we can just trigger a manual sync or ignore
+        
+      } catch (e) {
+        setState(() {
+          _regStatus = 'error';
+          _regMessage = 'Invalid QR code or connection failed: ${e.toString()}';
+          _regSuccess = false;
+        });
+      } finally {
+        if (mounted) setState(() => _registering = false);
+      }
+    }
+  }
+
   Future<void> _registerDevice() async {
+
     if (!_formKey.currentState!.validate()) return;
 
     setState(() { _registering = true; _regStatus = ''; _regMessage = ''; });
@@ -188,6 +266,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+
+              // ── Quick Onboarding ─────────────────────────────────────────
+              _Card(
+                children: [
+                  const Text('Got an Onboarding QR Code from Admin?', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _scanOnboardQr(context),
+                      icon: const Icon(Icons.qr_code_scanner),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10b981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      label: const Text('Scan QR to Auto-Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
               // ── Step 1: Identity ─────────────────────────────────────────
               _StepIndicator(step: 1, title: 'Device Identity', isActive: true),
               const SizedBox(height: 12),

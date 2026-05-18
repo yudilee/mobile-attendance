@@ -901,25 +901,36 @@ class _StatusFeedbackState extends State<_StatusFeedback> {
       }
     }
 
+
     Color bgColor = Colors.red.shade50;
     Color borderColor = Colors.red;
     Color textColor = Colors.red.shade900;
     IconData icon = Icons.error;
-    String mainText = 'Error: ${state.errorMessage}';
+    String mainText = state.errorMessage?.replaceAll('Exception: ', '') ?? 'Unknown error';
+
+    final isGeofenceError = isError && (mainText.contains('Outside assigned branches') || mainText.toLowerCase().contains('geofence'));
 
     if (isSuccess) {
       bgColor = Colors.green.shade50;
       borderColor = Colors.green;
       textColor = Colors.green.shade900;
       icon = Icons.check_circle;
-      mainText = 'Attendance Recorded';
+      mainText = state.result?['message'] ?? 'Punch Successful';
     } else if (isOffline) {
+      bgColor = Colors.blue.shade50;
+      borderColor = Colors.blue;
+      textColor = Colors.blue.shade900;
+      icon = Icons.cloud_off;
+      mainText = 'Saved Offline (Will sync when online)';
+    } else if (isGeofenceError) {
       bgColor = Colors.orange.shade50;
       borderColor = Colors.orange;
       textColor = Colors.orange.shade900;
-      icon = Icons.cloud_done;
-      mainText = state.result?['message'] ?? 'Saved offline. Will sync later.';
+      icon = Icons.location_off;
+    } else if (isError) {
+      mainText = 'Error: $mainText';
     }
+
 
     return Container(
       padding: const EdgeInsets.all(16),

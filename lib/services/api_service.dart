@@ -119,6 +119,23 @@ class ApiService {
   }
 
   /// Fetch branch assignment and geofence config for this device.
+
+  Future<Map<String, dynamic>> onboardDevice({
+    required String token,
+    required String deviceUuid,
+    String? deviceLabel,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/device-onboard',
+      data: {
+        'token': token,
+        'device_uuid': deviceUuid,
+        if (deviceLabel != null) 'device_label': deviceLabel,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> getDeviceConfig({
     String? employeeId,
     required String deviceUuid,
