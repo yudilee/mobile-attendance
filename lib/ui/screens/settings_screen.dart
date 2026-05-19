@@ -263,28 +263,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
 
-              // ── Quick Onboarding ─────────────────────────────────────────
-              _Card(
-                children: [
-                  const Text('Got an Onboarding QR Code from Admin?', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _scanOnboardQr(context),
-                      icon: const Icon(Icons.qr_code_scanner),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10b981),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      label: const Text('Scan QR to Auto-Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                    ),
+              // ═══════════════════════════════════════════════════════════════
+              // METHOD 1: QR CODE ONBOARDING (Quick — Instant Approval)
+              // ═══════════════════════════════════════════════════════════════
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green.shade50, Colors.green.shade100],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.qr_code_scanner, color: Colors.green, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('⚡ Quick Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+                              Text('Scan admin QR — instant approval', style: TextStyle(fontSize: 12, color: Colors.green)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _scanOnboardQr(context),
+                        icon: const Icon(Icons.qr_code_scanner),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF10b981),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        label: const Text('Scan QR to Auto-Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 24),
+
+              // ── Divider with "OR" ────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'OR MANUAL SETUP',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade500,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+              ),
+
+              // ═══════════════════════════════════════════════════════════════
+              // METHOD 2: MANUAL SETUP (Step by Step — Requires Admin Approval)
+              // ═══════════════════════════════════════════════════════════════
+              Text(
+                'MANUAL SETUP',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Enter details manually — requires admin approval after registration',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+              const SizedBox(height: 16),
+
               // ── Step 1: Identity ─────────────────────────────────────────
               _StepIndicator(step: 1, title: 'Device Identity', isActive: true),
               const SizedBox(height: 12),
@@ -364,7 +448,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           IconButton(
                             icon: const Icon(Icons.content_paste, size: 18),
                             onPressed: () async {
-                              // No-op: Android/iOS paste is native via long-press
+                              // No-op: paste is native via long-press
                             },
                             tooltip: 'Long-press to paste',
                           ),
