@@ -9,6 +9,7 @@ import '../../services/security_service.dart';
 import '../../services/app_settings.dart';
 import '../theme.dart';
 import 'history_screen.dart'; // Import to access punchHistoryProvider
+import 'help_screen.dart';
 
 
 final userProfileProvider = FutureProvider<String>((ref) async {
