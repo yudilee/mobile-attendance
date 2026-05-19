@@ -5,6 +5,7 @@ import '../../database/app_database.dart';
 import '../../services/attendance_calculator.dart';
 import '../../providers/punch_provider.dart';
 import '../../providers/network_sync_provider.dart';
+import '../../services/security_service.dart';
 import '../../services/app_settings.dart';
 import '../theme.dart';
 import 'history_screen.dart'; // Import to access punchHistoryProvider
@@ -20,6 +21,20 @@ final userProfileProvider = FutureProvider<String>((ref) async {
   if (id.isNotEmpty) return id;
   return 'Employee';
 });
+
+// ─── Security Status Provider ─────────────────────────────────────────────
+// Checks device security state and returns a human-readable status.
+final securityStatusProvider = FutureProvider<String>((ref) async {
+  final security = SecurityService();
+  final isCompromised = await security.isDeviceCompromised();
+  if (isCompromised) {
+    return 'rooted';
+  }
+  // If we reach here, it means no root access found.
+  // Unlocked bootloader is NOT treated as compromised.
+  return 'secure';
+});
+
 
 class DashboardScreen extends ConsumerStatefulWidget {
 
@@ -99,6 +114,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: 16),
             // Monthly calendar/mini stats
             _MonthlyStatsCard(db: db),
+            const SizedBox(height: 16),
+            // Security status indicator
+            _SecurityStatusCard(),
           ],
         ),
       ),
@@ -992,6 +1010,95 @@ class _LegendItem extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+// ─── Security Status Card ─────────────────────────────────────────────────
+// Shows device security status on the dashboard.
+// - 🟢 "Secure" — No root access detected (most devices)
+// - 🔴 "Device Compromised" — Root access detected (su binary found)
+// Unlocked bootloader is NOT treated as compromised.
+class _SecurityStatusCard extends ConsumerWidget {
+  const _SecurityStatusCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(securityStatusProvider).when(
+      data: (status) {
+        final bool isSecure = status == 'secure';
+        final Color bgColor = isSecure ? Colors.green.shade50 : Colors.red.shade50;
+        final Color borderColor = isSecure ? Colors.green : Colors.red;
+        final Color textColor = isSecure ? Colors.green.shade700 : Colors.red.shade700;
+        final IconData icon = isSecure ? Icons.security : Icons.gpp_bad;
+        final String title = isSecure ? 'Device Secure' : 'Device Compromised';
+        final String subtitle = isSecure
+            ? 'No root access detected'
+            : 'Root access detected — contact IT admin';
+
+        return GestureDetector(
+          onTap: () {
+            // Navigate to help screen for more info
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HelpScreen()),
+            );
+          },
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: borderColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: borderColor, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: textColor,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: textColor.withOpacity(0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.help_outline,
+                  size: 18,
+                  color: textColor.withOpacity(0.5),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      loading: () => const SizedBox(height: 50),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }
