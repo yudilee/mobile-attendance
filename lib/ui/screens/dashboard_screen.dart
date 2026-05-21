@@ -159,7 +159,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 const SizedBox(height: 24),
                 Center(
                   child: Text(
-                    '\u00A9 2024 IT Dept HRM Group',
+                    '\u00A9 ${DateTime.now().year} IT Dept HRM Group',
                     style: TextStyle(color: onSurfaceVariant, fontSize: 12),
                   ),
                 ),
@@ -288,71 +288,78 @@ class _TodaySummaryCard extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Shift Status',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               const SizedBox(height: 20),
               if (isLoading)
                 const Center(child: CircularProgressIndicator(color: AppTheme.primaryCyan))
               else if (summary != null)
-                Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildShiftItem(
-                            icon: Icons.login,
-                            label: 'Check In',
-                            value: summary.clockInTime != null
-                                ? _formatTime(DateTime.parse(summary.clockInTime!))
-                                : '--:--',
-                            color: AppTheme.primaryCyan,
+                Builder(builder: (context) {
+                  final textColor = Theme.of(context).colorScheme.onSurface;
+                  return Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildShiftItem(
+                              icon: Icons.login,
+                              label: 'Check In',
+                              value: summary.clockInTime != null
+                                  ? _formatTime(DateTime.parse(summary.clockInTime!))
+                                  : '--:--',
+                              color: AppTheme.primaryCyan,
+                              textColor: textColor,
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: _buildShiftItem(
-                            icon: Icons.logout,
-                            label: 'Check Out',
-                            value: summary.clockOutTime != null
-                                ? _formatTime(DateTime.parse(summary.clockOutTime!))
-                                : '--:--',
-                            color: AppTheme.secondaryViolet,
+                          Expanded(
+                            child: _buildShiftItem(
+                              icon: Icons.logout,
+                              label: 'Check Out',
+                              value: summary.clockOutTime != null
+                                  ? _formatTime(DateTime.parse(summary.clockOutTime!))
+                                  : '--:--',
+                              color: AppTheme.secondaryViolet,
+                              textColor: textColor,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildShiftItem(
-                            icon: Icons.access_time,
-                            label: 'Work Duration',
-                            value: summary.todayWorkDuration != null
-                                ? _formatDuration(summary.todayWorkDuration!)
-                                : '--h --m',
-                            color: Colors.grey.shade400,
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildShiftItem(
+                              icon: Icons.access_time,
+                              label: 'Work Duration',
+                              value: summary.todayWorkDuration != null
+                                  ? _formatDuration(summary.todayWorkDuration!)
+                                  : '--h --m',
+                              color: Colors.grey.shade400,
+                              textColor: textColor,
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: _buildShiftItem(
-                            icon: Icons.trending_up,
-                            label: 'Overtime',
-                            value: (summary.todayWorkDuration != null && summary.todayWorkDuration!.inHours > 8)
-                                ? _formatDuration(summary.todayWorkDuration! - const Duration(hours: 8))
-                                : '0h 0m',
-                            color: Colors.grey.shade400,
+                          Expanded(
+                            child: _buildShiftItem(
+                              icon: Icons.trending_up,
+                              label: 'Overtime',
+                              value: (summary.todayWorkDuration != null && summary.todayWorkDuration!.inHours > 8)
+                                  ? _formatDuration(summary.todayWorkDuration! - const Duration(hours: 8))
+                                  : '0h 0m',
+                              color: Colors.grey.shade400,
+                              textColor: textColor,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                )
+                        ],
+                      ),
+                    ],
+                  );
+                })
               else if (snapshot.hasError)
                 Center(child: Text('Error loading data', style: TextStyle(color: AppTheme.errorRed))),
             ],
@@ -362,7 +369,7 @@ class _TodaySummaryCard extends ConsumerWidget {
     );
   }
 
-  Widget _buildShiftItem({required IconData icon, required String label, required String value, required Color color}) {
+  Widget _buildShiftItem({required IconData icon, required String label, required String value, required Color color, required Color textColor}) {
     return Row(
       children: [
         Container(
@@ -379,7 +386,7 @@ class _TodaySummaryCard extends ConsumerWidget {
           children: [
             Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
             const SizedBox(height: 2),
-            Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
           ],
         ),
       ],
@@ -427,12 +434,12 @@ class _WeeklyOverviewCard extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'This Week',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   Icon(Icons.more_horiz, color: Colors.grey.shade400),
@@ -510,7 +517,7 @@ class _WeeklyDayIndicators extends StatelessWidget {
         Color indicatorColor;
         Color bgColor;
         if (isToday) {
-          indicatorColor = Colors.white;
+          indicatorColor = Theme.of(context).colorScheme.onSurface;
           bgColor = AppTheme.primaryCyan;
         } else if (isLate) {
           indicatorColor = Colors.orangeAccent;
@@ -520,7 +527,7 @@ class _WeeklyDayIndicators extends StatelessWidget {
           bgColor = AppTheme.successGreen.withOpacity(0.15);
         } else {
           indicatorColor = Colors.grey.shade500;
-          bgColor = Colors.white.withOpacity(0.05);
+          bgColor = Theme.of(context).colorScheme.onSurface.withOpacity(0.05);
         }
 
         return Column(
@@ -552,7 +559,7 @@ class _WeeklyDayIndicators extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: isToday
-                    ? Colors.white
+                    ? Theme.of(context).colorScheme.onSurface
                     : Colors.grey.shade400,
                 fontWeight: isToday ? FontWeight.w600 : FontWeight.normal,
               ),
@@ -591,12 +598,12 @@ class _MonthlyStatsCard extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Monthly Performance',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   Icon(Icons.calendar_month, color: Colors.grey.shade400),
@@ -681,7 +688,7 @@ class _PercentageBar extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Attendance Goal', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text('Attendance Goal', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13, fontWeight: FontWeight.w600)),
             Text('${(presentPct * 100).toStringAsFixed(0)}%', style: const TextStyle(color: AppTheme.primaryCyan, fontSize: 13, fontWeight: FontWeight.bold)),
           ],
         ),
@@ -708,7 +715,7 @@ class _PercentageBar extends StatelessWidget {
                     child: Container(color: AppTheme.errorRed),
                   ),
                 if (total == 0) // Fallback if no punches yet
-                  Expanded(child: Container(color: Colors.white.withOpacity(0.1))),
+                  Expanded(child: Container(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1))),
               ],
             ),
           ),

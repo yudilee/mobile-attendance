@@ -27,16 +27,17 @@ class AppTheme {
   static BoxDecoration glassDecoration({BuildContext? context, double borderRadius = 20, bool withBorder = true}) {
     final isDark = context == null || Theme.of(context).brightness == Brightness.dark;
     return BoxDecoration(
-      color: isDark ? surfaceGlass : const Color(0xCCFFFFFF),
+      color: isDark ? surfaceGlass : Colors.white,
       borderRadius: BorderRadius.circular(borderRadius),
       border: withBorder 
-          ? Border.all(color: isDark ? surfaceGlassBorder : const Color(0x1F000000), width: 1.0) 
+          ? Border.all(color: isDark ? surfaceGlassBorder : Colors.grey.withOpacity(0.1), width: 1.0) 
           : null,
       boxShadow: [
         BoxShadow(
-          color: isDark ? Colors.black.withOpacity(0.2) : Colors.black.withOpacity(0.05),
-          blurRadius: 10,
+          color: isDark ? Colors.black.withOpacity(0.2) : Colors.black.withOpacity(0.04),
+          blurRadius: 16,
           spreadRadius: 2,
+          offset: const Offset(0, 4),
         )
       ],
     );
@@ -54,8 +55,8 @@ class AppTheme {
 
   static ThemeData _buildTheme(Brightness brightness, {required bool isDark}) {
     final Color bgColor = isDark ? backgroundDeep : const Color(0xFFF8FAFC);
-    final Color surfaceColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFFFF);
-    final Color textColor = isDark ? textMain : const Color(0xFF0F172A);
+    final Color surfaceColor = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final Color textColor = isDark ? textMain : const Color(0xFF1E293B);
     final Color textSecColor = isDark ? textMuted : const Color(0xFF64748B);
 
     return ThemeData(

@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' as drift;
 import '../../database/app_database.dart';
 import '../../providers/punch_provider.dart';
 import '../../providers/network_sync_provider.dart';
+import '../theme.dart';
 
 final punchHistoryProvider = StreamProvider<List<PunchHistoryData>>((ref) {
   final db = ref.watch(appDatabaseProvider);
@@ -22,8 +23,8 @@ class HistoryScreen extends ConsumerStatefulWidget {
 }
 
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
-  String _filter = 'All';
-  static const _filters = ['All', 'Synced', 'Pending'];
+  String _filter = 'Today';
+  static const _filters = ['Today', 'Yesterday', 'This Week', 'Older'];
 
   @override
   Widget build(BuildContext context) {
@@ -32,39 +33,90 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Punch History'),
+        title: const Text('Work History', style: TextStyle(fontWeight: FontWeight.bold)),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Filter chips
+          // Filter capsules
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: SizedBox(
-              height: 36,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: _filters.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final label = _filters[index];
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _filters.map((label) {
                   final selected = _filter == label;
-                  return FilterChip(
-                    label: Text(label, style: TextStyle(fontSize: 12, color: selected ? Theme.of(context).colorScheme.onPrimary : null)),
-                    selected: selected,
-                    onSelected: (bool val) {
-                      setState(() => _filter = label);
-                    },
-                    selectedColor: Theme.of(context).colorScheme.primary,
-                    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    labelStyle: TextStyle(color: selected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface),
-                    checkmarkColor: Theme.of(context).colorScheme.onPrimary,
-                    side: BorderSide.none,
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ChoiceChip(
+                      label: Text(label, style: TextStyle(fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
+                      selected: selected,
+                      onSelected: (bool val) {
+                        setState(() => _filter = label);
+                      },
+                      selectedColor: AppTheme.primaryCyan,
+                      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.white : Theme.of(context).colorScheme.onSurface,
+                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      showCheckmark: false,
+                      side: BorderSide.none,
+                    ),
                   );
-                },
+                }).toList(),
               ),
             ),
           ),
-          const SizedBox(height: 4),
+          
+          const SizedBox(height: 16),
+          
+          // Summary cards
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: AppTheme.glassDecoration(context: context, borderRadius: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.timer, color: AppTheme.primaryCyan, size: 24),
+                        const SizedBox(height: 12),
+                        const Text('Total Work Hours', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                        const SizedBox(height: 4),
+                        Text('8h 45m', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: AppTheme.glassDecoration(context: context, borderRadius: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.check_circle, color: AppTheme.successGreen, size: 24),
+                        const SizedBox(height: 12),
+                        const Text('Status', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                        const SizedBox(height: 4),
+                        Text('Clocked In', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
           // History list with pull-to-refresh
           Expanded(
             child: historyStream.when(
@@ -74,12 +126,20 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                     child: Text('No punch history on this device.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
                   );
                 }
-                final filtered = _filter == 'All'
-                    ? history
-                    : history.where((p) {
-                        if (_filter == 'Synced') return p.syncStatus == 'synced';
-                        return p.syncStatus != 'synced';
-                      }).toList();
+                
+                // Filter logic
+                final now = DateTime.now();
+                final today = DateTime(now.year, now.month, now.day);
+                final yesterday = today.subtract(const Duration(days: 1));
+                final startOfWeek = today.subtract(Duration(days: now.weekday - 1));
+                
+                final filtered = history.where((p) {
+                  final itemDate = DateTime(p.createdAt.year, p.createdAt.month, p.createdAt.day);
+                  if (_filter == 'Today') return itemDate == today;
+                  if (_filter == 'Yesterday') return itemDate == yesterday;
+                  if (_filter == 'This Week') return itemDate.isAfter(startOfWeek.subtract(const Duration(days: 1)));
+                  return itemDate.isBefore(startOfWeek);
+                }).toList();
 
                 if (filtered.isEmpty) {
                   return Center(
@@ -99,6 +159,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                     await Future.delayed(const Duration(milliseconds: 300));
                   },
                   child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                     itemCount: grouped.entries.length,
                     itemBuilder: (context, index) {
@@ -107,13 +168,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Padding(
-                            padding: const EdgeInsets.only(top: 16, bottom: 8),
+                            padding: const EdgeInsets.only(top: 16, bottom: 12),
                             child: Text(
                               entry.key,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.textMuted,
+                                letterSpacing: 0.5,
                               ),
                             ),
                           ),
@@ -124,7 +186,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   ),
                 );
               },
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.primaryCyan)),
               error: (err, _) => Center(child: Text('Error loading history: $err')),
             ),
           ),
@@ -143,11 +205,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       final itemDate = DateTime(item.createdAt.year, item.createdAt.month, item.createdAt.day);
       String label;
       if (itemDate == today) {
-        label = 'Today';
+        label = 'TODAY, ${DateFormat('MMM d').format(item.createdAt).toUpperCase()}';
       } else if (itemDate == yesterday) {
-        label = 'Yesterday';
+        label = 'YESTERDAY, ${DateFormat('MMM d').format(item.createdAt).toUpperCase()}';
       } else {
-        label = DateFormat('EEE, d MMM yyyy').format(item.createdAt);
+        label = DateFormat('EEE, MMM d').format(item.createdAt).toUpperCase();
       }
       grouped.putIfAbsent(label, () => []).add(item);
     }
@@ -162,41 +224,40 @@ class _PunchHistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isIn = punch.punchType.toLowerCase().contains('in');
-    final isOut = punch.punchType.toLowerCase().contains('out');
 
     String timeStr;
     try {
-      timeStr = DateFormat('HH:mm').format(DateTime.parse(punch.timestamp).toLocal());
+      timeStr = DateFormat('hh:mm a').format(DateTime.parse(punch.timestamp).toLocal());
     } catch (_) {
       timeStr = punch.timestamp;
     }
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 16),
       child: ListTile(
-        leading: CircleAvatar(
-          radius: 20,
-          backgroundColor: isIn ? Colors.green.shade100 : isOut ? Colors.red.shade100 : Colors.blue.shade100,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isIn ? AppTheme.primaryCyan.withOpacity(0.15) : AppTheme.secondaryViolet.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: Icon(
-            isIn ? Icons.login : isOut ? Icons.logout : Icons.schedule,
-            size: 18,
-            color: isIn ? Colors.green.shade700 : isOut ? Colors.red.shade700 : Colors.blue.shade700,
+            isIn ? Icons.arrow_downward : Icons.arrow_upward,
+            size: 20,
+            color: isIn ? AppTheme.primaryCyan : AppTheme.secondaryViolet,
           ),
         ),
         title: Text(
-          '${punch.punchType} Punch',
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          isIn ? 'Clocked In' : 'Clocked Out',
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Theme.of(context).colorScheme.onSurface),
         ),
-        subtitle: Row(
-          children: [
-            Text(timeStr, style: const TextStyle(fontSize: 13)),
-            const SizedBox(width: 12),
-            _SyncBadge(status: punch.syncStatus),
-          ],
+        subtitle: Text(
+          timeStr, 
+          style: const TextStyle(fontSize: 13, color: AppTheme.textMuted, fontWeight: FontWeight.w500)
         ),
-        trailing: punch.syncStatus == 'synced'
-            ? const Icon(Icons.cloud_done, color: Colors.green, size: 18)
-            : const Icon(Icons.cloud_off, color: Colors.orange, size: 18),
+        trailing: _SyncBadge(status: punch.syncStatus),
       ),
     );
   }
@@ -211,19 +272,20 @@ class _SyncBadge extends StatelessWidget {
     final String text;
     final Color color;
     if (status == 'synced') {
-      text = 'Synced'; color = Colors.green;
+      text = 'SYNCED'; color = AppTheme.successGreen;
     } else if (status == 'expired') {
-      text = 'Expired'; color = Colors.red.shade300;
+      text = 'EXPIRED'; color = AppTheme.errorRed;
     } else {
-      text = 'Pending'; color = Colors.orange;
+      text = 'PENDING'; color = Colors.orange;
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(4),
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.5)),
       ),
-      child: Text(text, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600)),
+      child: Text(text, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
     );
   }
 }

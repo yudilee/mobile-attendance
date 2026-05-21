@@ -29,6 +29,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   List<String> _configGaps = [];
   Position? _currentPosition;
   StreamSubscription<Position>? _positionStream;
+  final MapController _mapController = MapController();
 
   @override
   void initState() {
@@ -52,6 +53,10 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
         setState(() {
           _currentPosition = position;
         });
+        // Try centering map on current location if the controller is ready
+        try {
+          _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
+        } catch (_) {}
       }
     });
   }
@@ -67,6 +72,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   void dispose() {
     _positionStream?.cancel();
     WidgetsBinding.instance.removeObserver(this);
+    _mapController.dispose();
     super.dispose();
   }
 
@@ -385,25 +391,50 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                               }
                             }
 
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: badgeColor.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: badgeColor.withOpacity(0.6)),
-                              ),
-                              child: Row(
+                              return Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(badgeIcon, size: 14, color: badgeColor),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    badgeText,
-                                    style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: badgeColor.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: badgeColor.withOpacity(0.6)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(badgeIcon, size: 14, color: badgeColor),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          badgeText,
+                                          style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                  if (branchesList != null && branchesList.length > 1)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+                                        ),
+                                        child: Text(
+                                          'Multipoint Branch Active',
+                                          style: TextStyle(
+                                            color: Theme.of(context).colorScheme.primary,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                 ],
-                              ),
-                            );
+                              );
                           }),
                         ),
                       ),
@@ -561,8 +592,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         ],
                       ),
                       const SizedBox(height: 24),
-                      Text('\u00A9 2024 IT Dept HRM Group', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
-                      const SizedBox(height: 16),
+                      Text('\u00A9 ${DateTime.now().year} IT Dept HRM Group', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+                      const SizedBox(height: 32),
                     ],
                   );
                 },
