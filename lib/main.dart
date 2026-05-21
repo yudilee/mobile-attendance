@@ -4,8 +4,11 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'ui/theme.dart';
 import 'ui/screens/home_screen.dart';
+import 'ui/screens/splash_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
+import 'providers/theme_provider.dart';
+import 'services/crash_reporting.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +16,7 @@ Future<void> main() async {
   // Initialize Firebase (required for FCM push notifications)
   try {
     await Firebase.initializeApp();
+    await CrashReporting.initialize();
   } catch (e) {
     debugPrint('Firebase initialization failed (non-fatal): $e');
     // App continues without push notifications
@@ -91,9 +95,11 @@ class _AttendanceAppState extends ConsumerState<AttendanceApp> {
 
   @override
   Widget build(BuildContext context) {
+    final currentThemeMode = ref.watch(themeProvider);
+
     Widget homeWidget;
     if (_isLoading) {
-      homeWidget = const Scaffold(body: Center(child: CircularProgressIndicator()));
+      homeWidget = const SplashScreen();
     } else if (_needsUpdate) {
       homeWidget = Scaffold(
         body: Center(
@@ -120,6 +126,8 @@ class _AttendanceAppState extends ConsumerState<AttendanceApp> {
       debugShowCheckedModeBanner: false,
       title: 'Virtual Attendance',
       theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: currentThemeMode,
       home: homeWidget,
     );
   }

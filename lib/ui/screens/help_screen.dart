@@ -183,11 +183,7 @@ class _HelpScreenState extends State<HelpScreen> {
                   ),
                   title: Text(article.title),
                   subtitle: Text(
-                    article.content
-                            .substring(
-                                0, min(100, article.content.length))
-                            .replaceAll('\n', ' ') +
-                        '...',
+                    '${article.content.substring(0, min(100, article.content.length)).replaceAll('\n', ' ')}...',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/network_sync_provider.dart';
+import '../widgets/connectivity_banner.dart';
 import 'dashboard_screen.dart';
 import 'punch_tab.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
 import 'help_screen.dart';
+
+/// Provider exposing the current tab index so other screens can switch tabs.
+final homeTabIndexProvider = StateProvider<int>((ref) => 0);
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -15,8 +19,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  int _currentIndex = 0;
-
   final List<Widget> _tabs = const [
     DashboardScreen(),
     PunchTab(),
@@ -28,7 +30,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     // Start background sync manager for offline punch queue
-    // Must be called at least once — safe to call multiple times (idempotent)
     Future.microtask(() => ref.read(networkSyncProvider).start());
   }
 
@@ -36,6 +37,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final syncState = ref.watch(syncStateProvider);
     final pendingCount = syncState.pendingCount;
+    final currentIndex = ref.watch(homeTabIndexProvider);
+
+    // Listen to external tab-switch requests (from dashboard card taps)
+    ref.listen<int>(homeTabIndexProvider, (_, next) {
+      // No-op here; IndexedStack handles it reactively
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -88,17 +95,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _tabs,
+      body: Column(
+        children: [
+          // Connectivity banner — appears automatically when offline
+          const ConnectivityBanner(),
+          // Tab content
+          Expanded(
+            child: IndexedStack(
+              index: currentIndex,
+              children: _tabs,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        currentIndex: currentIndex,
+        onTap: (index) => ref.read(homeTabIndexProvider.notifier).state = index,
         items: [
           const BottomNavigationBarItem(
             icon: Icon(Icons.dashboard),

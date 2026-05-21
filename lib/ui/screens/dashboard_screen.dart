@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shimmer/shimmer.dart';
 import '../../database/app_database.dart';
 import '../../services/attendance_calculator.dart';
 import '../../providers/punch_provider.dart';
@@ -8,8 +7,9 @@ import '../../providers/network_sync_provider.dart';
 import '../../services/security_service.dart';
 import '../../services/app_settings.dart';
 import '../theme.dart';
-import 'history_screen.dart'; // Import to access punchHistoryProvider
+import 'history_screen.dart';
 import 'help_screen.dart';
+import 'home_screen.dart'; // for homeTabIndexProvider
 
 
 final userProfileProvider = FutureProvider<String>((ref) async {
@@ -64,61 +64,109 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
+  /// Pull-to-refresh: sync punch history from backend then refresh local stats.
+  Future<void> _refreshDashboard() async {
+    await ref.read(networkSyncProvider).syncPunchHistory();
+    ref.invalidate(punchHistoryProvider);
+  }
+
+  /// Returns a time-appropriate greeting.
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour >= 5 && hour < 12) return '☀️ Good Morning';
+    if (hour >= 12 && hour < 17) return '🌤 Good Afternoon';
+    if (hour >= 17 && hour < 21) return '🌆 Good Evening';
+    return '🌙 Working Late?';
+  }
+
   @override
   Widget build(BuildContext context) {
     final db = ref.watch(appDatabaseProvider);
     final syncState = ref.watch(syncStateProvider);
     final pendingCount = syncState.pendingCount;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
 
     // Watch punch history so dashboard rebuilds when punches are added/synced
     ref.watch(punchHistoryProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dashboard', style: TextStyle(fontWeight: FontWeight.w700)),
-        elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 20, top: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Good Morning,',
-                    style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      body: SafeArea(
+        child: RefreshIndicator(
+          color: AppTheme.primaryCyan,
+          onRefresh: _refreshDashboard,
+          child: SingleChildScrollView(
+            // Always scrollable so pull-to-refresh works even when content is short
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 10),
+                Text(
+                  '${_getGreeting()}, $_employeeId',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: onSurface,
+                    letterSpacing: -0.5,
                   ),
-                  Text(
-                    _employeeId,
-                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppTheme.textMain),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Pull down to sync latest data',
+                  style: TextStyle(fontSize: 13, color: onSurfaceVariant),
+                ),
+                const SizedBox(height: 24),
+
+                // Sync status card (visible when there are pending punches)
+                if (pendingCount > 0 || syncState.status == SyncStatus.syncing || syncState.status == SyncStatus.error)
+                  _SyncStatusCard(
+                    syncState: syncState,
+                    onSyncTap: () => ref.read(networkSyncProvider).syncOfflinePunches(),
                   ),
-                ],
-              ),
+                if (pendingCount > 0 || syncState.status == SyncStatus.syncing || syncState.status == SyncStatus.error)
+                  const SizedBox(height: 24),
+
+                // Today's summary card (Shift Status) — tappable → History
+                InkWell(
+                  onTap: () => ref.read(homeTabIndexProvider.notifier).state = 2,
+                  borderRadius: BorderRadius.circular(20),
+                  child: _TodaySummaryCard(db: db),
+                ),
+                const SizedBox(height: 20),
+
+                // Weekly stats — tappable → History
+                InkWell(
+                  onTap: () => ref.read(homeTabIndexProvider.notifier).state = 2,
+                  borderRadius: BorderRadius.circular(20),
+                  child: _WeeklyOverviewCard(db: db),
+                ),
+                const SizedBox(height: 20),
+
+                // Monthly stats — tappable → History
+                InkWell(
+                  onTap: () => ref.read(homeTabIndexProvider.notifier).state = 2,
+                  borderRadius: BorderRadius.circular(20),
+                  child: _MonthlyStatsCard(db: db),
+                ),
+                const SizedBox(height: 24),
+
+                // Security status indicator
+                _SecurityStatusCard(),
+
+                const SizedBox(height: 24),
+                Center(
+                  child: Text(
+                    '\u00A9 2024 IT Dept HRM Group',
+                    style: TextStyle(color: onSurfaceVariant, fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
             ),
-            // Sync status card (visible when there are pending punches)
-            if (pendingCount > 0 || syncState.status == SyncStatus.syncing || syncState.status == SyncStatus.error)
-              _SyncStatusCard(
-                syncState: syncState,
-                onSyncTap: () => ref.read(networkSyncProvider).syncOfflinePunches(),
-              ),
-            if (pendingCount > 0 || syncState.status == SyncStatus.syncing || syncState.status == SyncStatus.error)
-              const SizedBox(height: 16),
-            // Today's summary card
-            _TodaySummaryCard(db: db),
-            const SizedBox(height: 16),
-            // Weekly stats
-            _WeeklyOverviewCard(db: db),
-            const SizedBox(height: 16),
-            // Monthly calendar/mini stats
-            _MonthlyStatsCard(db: db),
-            const SizedBox(height: 16),
-            // Security status indicator
-            _SecurityStatusCard(),
-          ],
+          ),
         ),
       ),
     );
@@ -138,7 +186,6 @@ class _SyncStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    late final Color bgColor;
     late final Color borderColor;
     late final IconData icon;
     final String title;
@@ -146,68 +193,66 @@ class _SyncStatusCard extends StatelessWidget {
 
     switch (syncState.status) {
       case SyncStatus.syncing:
-        bgColor = Colors.blue.shade50;
-        borderColor = Colors.blue;
+        borderColor = AppTheme.primaryCyan;
         icon = Icons.sync;
         title = 'Syncing...';
         subtitle = '${syncState.pendingCount} punch(es) remaining';
       case SyncStatus.allSynced:
-        bgColor = Colors.green.shade50;
-        borderColor = Colors.green;
+        borderColor = AppTheme.successGreen;
         icon = Icons.cloud_done;
         title = 'All Synced';
         subtitle = syncState.lastSyncAt != null
             ? 'Last sync: ${_formatTime(syncState.lastSyncAt!)}'
             : 'No pending punches';
       case SyncStatus.error:
-        bgColor = Colors.red.shade50;
-        borderColor = Colors.red;
+        borderColor = AppTheme.errorRed;
         icon = Icons.cloud_off;
         title = 'Sync Error';
         subtitle = syncState.lastError ?? 'Unknown error';
       default:
-        bgColor = Colors.orange.shade50;
         borderColor = Colors.orange;
         icon = Icons.cloud_upload;
         title = '${syncState.pendingCount} Punch(es) Pending';
         subtitle = 'Tap to sync now';
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor.withOpacity(0.5)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: borderColor, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: borderColor, fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: TextStyle(fontSize: 11, color: borderColor.withOpacity(0.8))),
-              ],
+    return GestureDetector(
+      onTap: syncState.status == SyncStatus.syncing ? null : onSyncTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+          color: borderColor.withOpacity(0.08),
+          border: Border.all(color: borderColor.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: borderColor, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: borderColor, fontSize: 13)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(fontSize: 11, color: borderColor.withOpacity(0.8))),
+                ],
+              ),
             ),
-          ),
-          if (syncState.status == SyncStatus.syncing)
-            const SizedBox(
-              width: 18, height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
-            )
-          else
-            IconButton(
-              onPressed: onSyncTap,
-              icon: const Icon(Icons.refresh, size: 20),
-              color: borderColor,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-        ],
+            if (syncState.status == SyncStatus.syncing)
+              SizedBox(
+                width: 18, height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: borderColor),
+              )
+            else
+              IconButton(
+                onPressed: onSyncTap,
+                icon: const Icon(Icons.refresh, size: 20),
+                color: borderColor,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -237,181 +282,110 @@ class _TodaySummaryCard extends ConsumerWidget {
         final summary = snapshot.data;
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
-        return Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryTeal.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.today,
-                        color: AppTheme.primaryTeal,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Today',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const Spacer(),
-                    if (!isLoading && summary != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: summary.isPresentToday
-                              ? (summary.isLateToday
-                                  ? Colors.orange.shade50
-                                  : Colors.green.shade50)
-                              : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          !summary.isPresentToday
-                              ? 'Absent'
-                              : summary.isLateToday
-                                  ? 'Late'
-                                  : 'Present',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                            color: !summary.isPresentToday
-                                ? Colors.grey
-                                : summary.isLateToday
-                                    ? Colors.orange
-                                    : Colors.green,
-                          ),
-                        ),
-                      ),
-                  ],
+        return Container(
+          decoration: AppTheme.glassDecoration(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Shift Status',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
-                const SizedBox(height: 16),
-                if (isLoading)
-                  Shimmer.fromColors(
-                    baseColor: Colors.grey.shade200,
-                    highlightColor: Colors.grey.shade100,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              ),
+              const SizedBox(height: 20),
+              if (isLoading)
+                const Center(child: CircularProgressIndicator(color: AppTheme.primaryCyan))
+              else if (summary != null)
+                Column(
+                  children: [
+                    Row(
                       children: [
-                        Container(width: 150, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)),
-                        Container(width: double.infinity, height: 24, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
-                        Container(width: 200, height: 24, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
+                        Expanded(
+                          child: _buildShiftItem(
+                            icon: Icons.login,
+                            label: 'Check In',
+                            value: summary.clockInTime != null
+                                ? _formatTime(DateTime.parse(summary.clockInTime!))
+                                : '--:--',
+                            color: AppTheme.primaryCyan,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildShiftItem(
+                            icon: Icons.logout,
+                            label: 'Check Out',
+                            value: summary.clockOutTime != null
+                                ? _formatTime(DateTime.parse(summary.clockOutTime!))
+                                : '--:--',
+                            color: AppTheme.secondaryViolet,
+                          ),
+                        ),
                       ],
                     ),
-                  )
-                else if (summary != null) ...[
-                  // Date
-                  Text(
-                    _formatDate(DateTime.now()),
-                    style: TextStyle(
-                      color: AppTheme.textMuted,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildShiftItem(
+                            icon: Icons.access_time,
+                            label: 'Work Duration',
+                            value: summary.todayWorkDuration != null
+                                ? _formatDuration(summary.todayWorkDuration!)
+                                : '--h --m',
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildShiftItem(
+                            icon: Icons.trending_up,
+                            label: 'Overtime',
+                            value: (summary.todayWorkDuration != null && summary.todayWorkDuration!.inHours > 8)
+                                ? _formatDuration(summary.todayWorkDuration! - const Duration(hours: 8))
+                                : '0h 0m',
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Work duration
-                  if (summary.todayWorkDuration != null) ...[
-                    _StatRow(
-                      icon: Icons.access_time,
-                      label: 'Work Duration',
-                      value: _formatDuration(summary.todayWorkDuration!),
-                    ),
-                    const SizedBox(height: 8),
                   ],
-                  // First punch
-                  if (summary.clockInTime != null)
-                    _StatRow(
-                      icon: Icons.login,
-                      label: 'Clock In',
-                      value: _formatTime(DateTime.parse(summary.clockInTime!)),
-                    ),
-                  if (summary.clockOutTime != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: _StatRow(
-                        icon: Icons.logout,
-                        label: 'Clock Out',
-                        value:
-                            _formatTime(DateTime.parse(summary.clockOutTime!)),
-                      ),
-                    ),
-                  // Overtime indicator
-                  if (summary.todayWorkDuration != null &&
-                      summary.todayWorkDuration!.inHours > 8)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.trending_up,
-                              color: Colors.orange, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Overtime: ${_formatDuration(summary.todayWorkDuration! - const Duration(hours: 8))}',
-                            style: const TextStyle(
-                              color: Colors.orange,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (!summary.isPresentToday)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.info_outline,
-                              color: Colors.grey, size: 18),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'No punch recorded today',
-                            style: TextStyle(color: Colors.grey, fontSize: 15),
-                          ),
-                        ],
-                      ),
-                    ),
-                ] else if (snapshot.hasError)
-                  Center(
-                    child: Text(
-                      'Error loading data',
-                      style: TextStyle(color: Colors.red.shade400),
-                    ),
-                  ),
-              ],
-            ),
+                )
+              else if (snapshot.hasError)
+                Center(child: Text('Error loading data', style: TextStyle(color: AppTheme.errorRed))),
+            ],
           ),
         );
       },
     );
   }
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    const days = [
-      'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
-    ];
-    return '${days[date.weekday - 1]}, ${date.day} ${months[date.month - 1]} ${date.year}';
+  Widget _buildShiftItem({required IconData icon, required String label, required String value, required Color color}) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+            const SizedBox(height: 2),
+            Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+          ],
+        ),
+      ],
+    );
   }
+
 
   String _formatTime(DateTime dt) {
     final hour = dt.hour.toString().padLeft(2, '0');
@@ -444,98 +418,61 @@ class _WeeklyOverviewCard extends ConsumerWidget {
         final summary = snapshot.data;
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
-        return Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+        return Container(
+          decoration: AppTheme.glassDecoration(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'This Week',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Icon(Icons.more_horiz, color: Colors.grey.shade400),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (isLoading)
+                const Center(child: CircularProgressIndicator(color: AppTheme.primaryCyan))
+              else if (summary != null)
+                Column(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.date_range,
-                        color: Colors.blue,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'This Week',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (isLoading)
-                  Shimmer.fromColors(
-                    baseColor: Colors.grey.shade200,
-                    highlightColor: Colors.grey.shade100,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    // Stats row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Container(width: 60, height: 40, color: Colors.white),
-                            Container(width: 60, height: 40, color: Colors.white),
-                            Container(width: 80, height: 40, color: Colors.white),
-                          ],
+                        _MiniStat(
+                          label: 'Present',
+                          value: '${summary.totalPresent}',
+                          color: AppTheme.primaryCyan,
                         ),
-                        const SizedBox(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: List.generate(5, (_) => Container(width: 32, height: 48, color: Colors.white)),
+                        _MiniStat(
+                          label: 'Late',
+                          value: '${summary.totalLate}',
+                          color: Colors.orangeAccent,
+                        ),
+                        _MiniStat(
+                          label: 'Total Hrs',
+                          value: summary.totalWorkHours.toStringAsFixed(1),
+                          color: AppTheme.secondaryViolet,
                         ),
                       ],
                     ),
-                  )
-                else if (summary != null) ...[
-                  // Stats row
-                  Row(
-                    children: [
-                      _MiniStat(
-                        label: 'Present',
-                        value: '${summary.totalPresent}',
-                        color: Colors.green,
-                      ),
-                      const SizedBox(width: 16),
-                      _MiniStat(
-                        label: 'Late',
-                        value: '${summary.totalLate}',
-                        color: Colors.orange,
-                      ),
-                      const Spacer(),
-                      _MiniStat(
-                        label: 'Total Hours',
-                        value: summary.totalWorkHours.toStringAsFixed(1),
-                        color: AppTheme.primaryTeal,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Weekly day indicators
-                  _WeeklyDayIndicators(summary: summary),
-                ] else if (snapshot.hasError)
-                  Center(
-                    child: Text(
-                      'Error loading weekly data',
-                      style: TextStyle(color: Colors.red.shade400),
-                    ),
-                  ),
-              ],
-            ),
+                    const SizedBox(height: 24),
+                    // Weekly day indicators
+                    _WeeklyDayIndicators(summary: summary),
+                  ],
+                )
+              else if (snapshot.hasError)
+                Center(child: Text('Error loading weekly data', style: TextStyle(color: AppTheme.errorRed))),
+            ],
           ),
         );
       },
@@ -571,47 +508,52 @@ class _WeeklyDayIndicators extends StatelessWidget {
         final isLate = index < summary.totalLate;
 
         Color indicatorColor;
+        Color bgColor;
         if (isToday) {
-          indicatorColor = AppTheme.primaryTeal;
+          indicatorColor = Colors.white;
+          bgColor = AppTheme.primaryCyan;
         } else if (isLate) {
-          indicatorColor = Colors.orange;
+          indicatorColor = Colors.orangeAccent;
+          bgColor = Colors.orangeAccent.withOpacity(0.15);
         } else if (hasData) {
-          indicatorColor = Colors.green;
+          indicatorColor = AppTheme.successGreen;
+          bgColor = AppTheme.successGreen.withOpacity(0.15);
         } else {
-          indicatorColor = Colors.red.shade200;
+          indicatorColor = Colors.grey.shade500;
+          bgColor = Colors.white.withOpacity(0.05);
         }
 
         return Column(
           children: [
             Container(
-              width: 32,
-              height: 32,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                color: indicatorColor.withOpacity(isToday ? 0.2 : 0.15),
+                color: bgColor,
                 shape: BoxShape.circle,
-                border: isToday
-                    ? Border.all(color: indicatorColor, width: 2)
-                    : null,
+                boxShadow: isToday ? [
+                  BoxShadow(color: AppTheme.primaryCyan.withOpacity(0.4), blurRadius: 8, spreadRadius: 1)
+                ] : null,
               ),
               child: Center(
                 child: Text(
-                  '${day.day}',
+                  ['M', 'T', 'W', 'T', 'F'][index],
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                    fontSize: 14,
+                    fontWeight: isToday ? FontWeight.bold : FontWeight.w600,
                     color: indicatorColor,
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
-              ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][index],
+              '${day.day}',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 12,
                 color: isToday
-                    ? AppTheme.primaryTeal
-                    : AppTheme.textMuted,
+                    ? Colors.white
+                    : Colors.grey.shade400,
                 fontWeight: isToday ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
@@ -640,146 +582,76 @@ class _MonthlyStatsCard extends ConsumerWidget {
         final summary = snapshot.data;
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
-        return Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+        return Container(
+          decoration: AppTheme.glassDecoration(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Monthly Performance',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Icon(Icons.calendar_month, color: Colors.grey.shade400),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (isLoading)
+                const Center(child: CircularProgressIndicator(color: AppTheme.primaryCyan))
+              else if (summary != null)
+                Column(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.purple.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.calendar_month,
-                        color: Colors.purple,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Month to Date',
-                      style:
-                          Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                    ),
-                    const Spacer(),
-                    if (!isLoading && summary != null)
-                      Text(
-                        _monthName(DateTime.now().month),
-                        style: TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 13,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (isLoading)
-                  Shimmer.fromColors(
-                    baseColor: Colors.grey.shade200,
-                    highlightColor: Colors.grey.shade100,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    // Stats in a 3-column grid
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: List.generate(3, (_) => Container(width: 80, height: 60, color: Colors.white)),
+                        Expanded(
+                          child: _StatBox(
+                            label: 'Present',
+                            value: '${summary.totalPresent}',
+                            color: AppTheme.primaryCyan,
+                            icon: Icons.check_circle,
+                          ),
                         ),
-                        const SizedBox(height: 24),
-                        Container(width: double.infinity, height: 16, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _StatBox(
+                            label: 'Late',
+                            value: '${summary.totalLate}',
+                            color: Colors.orangeAccent,
+                            icon: Icons.warning_amber,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _StatBox(
+                            label: 'Absent',
+                            value: '${summary.totalAbsent}',
+                            color: AppTheme.errorRed,
+                            icon: Icons.cancel,
+                          ),
+                        ),
                       ],
                     ),
-                  )
-                else if (summary != null) ...[
-                  // Stats in a 3-column grid
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StatBox(
-                          label: 'Present',
-                          value: '${summary.totalPresent}',
-                          color: Colors.green,
-                          icon: Icons.check_circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _StatBox(
-                          label: 'Late',
-                          value: '${summary.totalLate}',
-                          color: Colors.orange,
-                          icon: Icons.warning_amber,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _StatBox(
-                          label: 'Absent',
-                          value: '${summary.totalAbsent}',
-                          color: Colors.red,
-                          icon: Icons.cancel,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Percentage breakdown
-                  _PercentageBar(summary: summary),
-                  const SizedBox(height: 12),
-                  // Average hours
-                  Row(
-                    children: [
-                      const Icon(Icons.query_stats,
-                          size: 16, color: AppTheme.textMuted),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Avg. ${summary.averageWorkHours.toStringAsFixed(1)} hrs/day',
-                        style: TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 15,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '${summary.totalWorkHours.toStringAsFixed(1)} total hrs',
-                        style: TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else if (snapshot.hasError)
-                  Center(
-                    child: Text(
-                      'Error loading monthly data',
-                      style: TextStyle(color: Colors.red.shade400),
-                    ),
-                  ),
-              ],
-            ),
+                    const SizedBox(height: 24),
+                    // Percentage breakdown
+                    _PercentageBar(summary: summary),
+                  ],
+                )
+              else if (snapshot.hasError)
+                Center(child: Text('Error loading monthly data', style: TextStyle(color: AppTheme.errorRed))),
+            ],
           ),
         );
       },
     );
-  }
-
-  String _monthName(int month) {
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    return months[month - 1];
   }
 }
 
@@ -806,50 +678,40 @@ class _PercentageBar extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Attendance Goal', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text('${(presentPct * 100).toStringAsFixed(0)}%', style: const TextStyle(color: AppTheme.primaryCyan, fontSize: 13, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        const SizedBox(height: 8),
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: SizedBox(
-            height: 12,
+            height: 10,
             child: Row(
               children: [
                 if (presentPct > 0)
                   Expanded(
                     flex: (presentPct * 100).round(),
-                    child: Container(color: Colors.green),
+                    child: Container(color: AppTheme.primaryCyan),
                   ),
                 if (latePct > 0)
                   Expanded(
                     flex: (latePct * 100).round(),
-                    child: Container(color: Colors.orange),
+                    child: Container(color: Colors.orangeAccent),
                   ),
                 if (absentPct > 0)
                   Expanded(
                     flex: (absentPct * 100).round(),
-                    child: Container(color: Colors.red.shade300),
+                    child: Container(color: AppTheme.errorRed),
                   ),
+                if (total == 0) // Fallback if no punches yet
+                  Expanded(child: Container(color: Colors.white.withOpacity(0.1))),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            _LegendItem(
-              color: Colors.green,
-              label:
-                  '${(presentPct * 100).toStringAsFixed(0)}% Present',
-            ),
-            const SizedBox(width: 12),
-            _LegendItem(
-              color: Colors.orange,
-              label: '${(latePct * 100).toStringAsFixed(0)}% Late',
-            ),
-            const SizedBox(width: 12),
-            _LegendItem(
-              color: Colors.red.shade300,
-              label: '${(absentPct * 100).toStringAsFixed(0)}% Absent',
-            ),
-          ],
         ),
       ],
     );
@@ -857,44 +719,6 @@ class _PercentageBar extends StatelessWidget {
 }
 
 // ─── Helper Widgets ──────────────────────────────────────────────────────────
-
-class _StatRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _StatRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: AppTheme.textMuted),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppTheme.textMuted,
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _MiniStat extends StatelessWidget {
   final String label;
@@ -925,7 +749,7 @@ class _MiniStat extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 13,
-            color: AppTheme.textMuted,
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -982,38 +806,6 @@ class _StatBox extends StatelessWidget {
   }
 }
 
-class _LegendItem extends StatelessWidget {
-  final Color color;
-  final String label;
-
-  const _LegendItem({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: AppTheme.textMuted,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 
 // ─── Security Status Card ─────────────────────────────────────────────────
@@ -1029,9 +821,6 @@ class _SecurityStatusCard extends ConsumerWidget {
     return ref.watch(securityStatusProvider).when(
       data: (status) {
         final bool isSecure = status == 'secure';
-        final Color bgColor = isSecure ? Colors.green.shade50 : Colors.red.shade50;
-        final Color borderColor = isSecure ? Colors.green : Colors.red;
-        final Color textColor = isSecure ? Colors.green.shade700 : Colors.red.shade700;
         final IconData icon = isSecure ? Icons.security : Icons.gpp_bad;
         final String title = isSecure ? 'Device Secure' : 'Device Compromised';
         final String subtitle = isSecure
@@ -1049,20 +838,19 @@ class _SecurityStatusCard extends ConsumerWidget {
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: borderColor.withOpacity(0.3)),
+            decoration: AppTheme.glassDecoration().copyWith(
+              color: isSecure ? AppTheme.successGreen.withOpacity(0.05) : AppTheme.errorRed.withOpacity(0.05),
+              border: Border.all(color: isSecure ? AppTheme.successGreen.withOpacity(0.3) : AppTheme.errorRed.withOpacity(0.3)),
             ),
             child: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: borderColor.withOpacity(0.1),
+                    color: isSecure ? AppTheme.successGreen.withOpacity(0.15) : AppTheme.errorRed.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, color: borderColor, size: 22),
+                  child: Icon(icon, color: isSecure ? AppTheme.successGreen : AppTheme.errorRed, size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1073,7 +861,7 @@ class _SecurityStatusCard extends ConsumerWidget {
                         title,
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          color: textColor,
+                          color: isSecure ? AppTheme.successGreen : AppTheme.errorRed,
                           fontSize: 13,
                         ),
                       ),
@@ -1082,7 +870,7 @@ class _SecurityStatusCard extends ConsumerWidget {
                         subtitle,
                         style: TextStyle(
                           fontSize: 11,
-                          color: textColor.withOpacity(0.8),
+                          color: Colors.grey.shade400,
                         ),
                       ),
                     ],
@@ -1091,7 +879,7 @@ class _SecurityStatusCard extends ConsumerWidget {
                 Icon(
                   Icons.help_outline,
                   size: 18,
-                  color: textColor.withOpacity(0.5),
+                  color: Colors.grey.shade500,
                 ),
               ],
             ),

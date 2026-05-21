@@ -43,6 +43,8 @@ class PunchState {
   final bool selfieRequired;
   final bool selfieCaptured;
   final String? selfieBase64;
+  final DateTime? lastBiometricAuthTime;
+  final int biometricSessionSeconds;
 
   PunchState({
     required this.status,
@@ -58,6 +60,8 @@ class PunchState {
     this.selfieRequired = false,
     this.selfieCaptured = false,
     this.selfieBase64,
+    this.lastBiometricAuthTime,
+    this.biometricSessionSeconds = 0,
   });
 
   factory PunchState.initial() => PunchState(status: PunchStatus.idle);
@@ -76,6 +80,8 @@ class PunchState {
     bool? selfieRequired,
     bool? selfieCaptured,
     String? selfieBase64,
+    DateTime? lastBiometricAuthTime,
+    int? biometricSessionSeconds,
   }) {
     return PunchState(
       status: status ?? this.status,
@@ -91,6 +97,8 @@ class PunchState {
       selfieRequired: selfieRequired ?? this.selfieRequired,
       selfieCaptured: selfieCaptured ?? this.selfieCaptured,
       selfieBase64: selfieBase64 ?? this.selfieBase64,
+      lastBiometricAuthTime: lastBiometricAuthTime ?? this.lastBiometricAuthTime,
+      biometricSessionSeconds: biometricSessionSeconds ?? this.biometricSessionSeconds,
     );
   }
 }
@@ -151,6 +159,11 @@ class PunchNotifier extends StateNotifier<PunchState> {
     final authed = await _security.authenticateBiometrics();
     if (authed) {
       _lastBiometricAuthTime = DateTime.now();
+      final sessionSeconds = await _security.getBiometricSessionSeconds();
+      state = state.copyWith(
+        lastBiometricAuthTime: _lastBiometricAuthTime,
+        biometricSessionSeconds: sessionSeconds,
+      );
     }
     return authed;
   }

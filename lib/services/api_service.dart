@@ -39,8 +39,9 @@ class ApiService {
   Future<void> _configurePinning(Dio dio) async {
     final pinEnabled = await AppSettings.isCertificatePinEnabled();
     final adapter = dio.httpClientAdapter;
-    if (adapter is DefaultHttpClientAdapter) {
-      adapter.onHttpClientCreate = (client) {
+    if (adapter is IOHttpClientAdapter) {
+      adapter.createHttpClient = () {
+        final client = HttpClient();
         client.badCertificateCallback =
             (X509Certificate cert, String host, int port) {
           // When pinning is enabled, reject untrusted certs (strict)
@@ -189,6 +190,31 @@ class ApiService {
     } on DioException catch (e) {
       // Silently fail — token registration is non-critical
       _logger.w('Failed to update FCM token: ${e.message}');
+    }
+  }
+
+  /// Fetch punch logs history for this employee from server.
+  Future<List<Map<String, dynamic>>> getPunchHistory({
+    String? employeeId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final dio = await _getDio();
+    try {
+      _logger.i('Fetching punch history from server for $employeeId');
+      final response = await dio.get('/api/v1/punch-history', queryParameters: {
+        if (employeeId != null) 'employee_id': employeeId,
+        'limit': limit,
+        'offset': offset,
+      });
+      final data = response.data['data'] as List<dynamic>;
+      return data.cast<Map<String, dynamic>>();
+    } on DioException catch (e) {
+      final errorMsg = (e.response?.data is Map ? e.response?.data['detail'] : null)
+          ?? e.message
+          ?? 'Network error';
+      _logger.e('Failed to fetch punch history: $errorMsg');
+      throw Exception(errorMsg);
     }
   }
 

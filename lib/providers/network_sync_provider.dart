@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:logger/logger.dart';
 import '../services/api_service.dart';
+import '../services/app_settings.dart';
 import '../services/offline_sync_service.dart';
 import '../database/app_database.dart';
 import 'punch_provider.dart';
@@ -244,6 +245,41 @@ class NetworkSyncManager {
   Duration backoffFor(int retryCount) {
     final seconds = min(30 * pow(2, retryCount).toInt(), 900);
     return Duration(seconds: seconds);
+  }
+
+  /// Fetch the latest 50 punch logs from the server and upsert into local DB.
+  /// Call this from pull-to-refresh on the Dashboard or History screen.
+  Future<void> syncPunchHistory() async {
+    try {
+      final employeeId = await AppSettings.getEmployeeId();
+      if (employeeId.isEmpty) {
+        _logger.w('syncPunchHistory: no employee ID configured, skipping.');
+        return;
+      }
+      _logger.i('Syncing punch history from server for $employeeId...');
+      final logs = await _api.getPunchHistory(employeeId: employeeId, limit: 50);
+      final db = _offlineSync; // has access to the DB through OfflineSyncService
+      int upserted = 0;
+      for (final log in logs) {
+        final clientId = log['client_punch_id'] as String? ??
+            'server_${log['id']}'; // fallback for server-only records
+        final punchType = log['punch_type'] as String? ?? '';
+        final timestamp = log['timestamp'] as String? ?? '';
+        if (punchType.isEmpty || timestamp.isEmpty) continue;
+        await db.recordSyncedPunch(
+          clientPunchId: clientId,
+          employeeId: employeeId,
+          punchType: punchType,
+          timestamp: timestamp,
+          serverLogId: log['id'] as int?,
+        );
+        upserted++;
+      }
+      _logger.i('Upserted $upserted punch records from server into local DB.');
+    } catch (e) {
+      _logger.e('syncPunchHistory failed: $e');
+      // Non-fatal — offline mode continues from local DB
+    }
   }
 
   void dispose() {

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:drift/drift.dart' as drift;
 import '../../database/app_database.dart';
 import '../../providers/punch_provider.dart';
+import '../../providers/network_sync_provider.dart';
 
 final punchHistoryProvider = StreamProvider<List<PunchHistoryData>>((ref) {
   final db = ref.watch(appDatabaseProvider);
@@ -48,12 +49,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   final label = _filters[index];
                   final selected = _filter == label;
                   return FilterChip(
-                    label: Text(label, style: TextStyle(fontSize: 12, color: selected ? Colors.white : null)),
+                    label: Text(label, style: TextStyle(fontSize: 12, color: selected ? Theme.of(context).colorScheme.onPrimary : null)),
                     selected: selected,
-                    onSelected: (_) => setState(() => _filter = label),
-                    backgroundColor: Colors.grey.shade100,
-                    selectedColor: const Color(0xFF009CA6),
-                    checkmarkColor: Colors.white,
+                    onSelected: (bool val) {
+                      setState(() => _filter = label);
+                    },
+                    selectedColor: Theme.of(context).colorScheme.primary,
+                    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    labelStyle: TextStyle(color: selected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface),
+                    checkmarkColor: Theme.of(context).colorScheme.onPrimary,
                     side: BorderSide.none,
                   );
                 },
@@ -66,8 +70,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             child: historyStream.when(
               data: (history) {
                 if (history.isEmpty) {
-                  return const Center(
-                    child: Text('No punch history on this device.', style: TextStyle(color: Colors.grey)),
+                  return Center(
+                    child: Text('No punch history on this device.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
                   );
                 }
                 final filtered = _filter == 'All'
@@ -79,7 +83,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
                 if (filtered.isEmpty) {
                   return Center(
-                    child: Text('No $_filter punches.', style: const TextStyle(color: Colors.grey)),
+                    child: Text('No $_filter punches.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
                   );
                 }
 
@@ -88,7 +92,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
                 return RefreshIndicator(
                   onRefresh: () async {
-                    // Force refresh by invalidating provider
+                    // 1. Fetch server-authoritative history
+                    await ref.read(networkSyncProvider).syncPunchHistory();
+                    // 2. Refresh the local stream
                     ref.invalidate(punchHistoryProvider);
                     await Future.delayed(const Duration(milliseconds: 300));
                   },
@@ -107,7 +113,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade600,
+                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                               ),
                             ),
                           ),

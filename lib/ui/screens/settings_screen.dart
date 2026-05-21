@@ -6,16 +6,18 @@ import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
 import '../../services/security_service.dart';
 import '../../providers/network_sync_provider.dart';
+import '../../providers/theme_provider.dart';
+import '../theme.dart';
 import 'help_screen.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _serverUrlCtrl = TextEditingController();
   final _apiKeyCtrl = TextEditingController();
@@ -141,8 +143,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
         
         setState(() {
-          _regStatus = response['status'] as String? ?? 'active';
-          _regMessage = 'Device onboarded and activated successfully!';
+          _regStatus = response['status'] as String? ?? 'pending_approval';
+          _regMessage = _regStatus == 'active' 
+              ? 'Device onboarded and activated successfully!'
+              : 'Device onboarded! Waiting for admin approval.';
           _regSuccess = true;
         });
         
@@ -248,10 +252,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Device Setup'),
-        backgroundColor: const Color(0xFF009CA6),
+        title: const Text('Device Setup & Settings'),
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
@@ -264,38 +268,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
 
               // ═══════════════════════════════════════════════════════════════
-              // METHOD 1: QR CODE ONBOARDING (Quick — Instant Approval)
+              // METHOD 1: QR CODE ONBOARDING (Recommended)
               // ═══════════════════════════════════════════════════════════════
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.green.shade50, Colors.green.shade100],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.green.shade200),
+                decoration: AppTheme.glassDecoration().copyWith(
+                  color: AppTheme.successGreen.withOpacity(0.05),
+                  border: Border.all(color: AppTheme.successGreen.withOpacity(0.3)),
                 ),
                 child: Column(
                   children: [
                     Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade100,
-                            borderRadius: BorderRadius.circular(10),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.successGreen.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.qr_code_scanner, color: AppTheme.successGreen, size: 24),
                           ),
-                          child: const Icon(Icons.qr_code_scanner, color: Colors.green, size: 24),
-                        ),
                         const SizedBox(width: 12),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('⚡ Quick Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
-                              Text('Scan admin QR — instant approval', style: TextStyle(fontSize: 12, color: Colors.green)),
+                              Text('⚡ Quick Setup (Recommended)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.successGreen)),
+                              Text('Scan admin QR to auto-fill details', style: TextStyle(fontSize: 12, color: AppTheme.successGreen)),
                             ],
                           ),
                         ),
@@ -308,7 +307,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onPressed: () => _scanOnboardQr(context),
                         icon: const Icon(Icons.qr_code_scanner),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10b981),
+                          backgroundColor: AppTheme.primaryCyan,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -331,7 +330,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
+                          color: Colors.white.withOpacity(0.05),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -358,7 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: Colors.grey.shade600,
+                  color: Colors.grey.shade400,
                   letterSpacing: 1.2,
                 ),
               ),
@@ -494,6 +493,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
 
               const SizedBox(height: 32),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // ── Appearance ────────────────────────────────────────────────
+              _StepIndicator(step: 0, title: 'Appearance', isActive: false),
+              const SizedBox(height: 12),
+              _Card(
+                children: [
+                  Consumer(
+                    builder: (context, ref, child) {
+                      final themeMode = ref.watch(themeProvider);
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('App Theme',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                        subtitle: const Text('Choose light, dark, or system default',
+                            style: TextStyle(fontSize: 12)),
+                        trailing: DropdownButton<ThemeMode>(
+                          value: themeMode,
+                          underline: const SizedBox.shrink(),
+                          items: const [
+                            DropdownMenuItem(value: ThemeMode.system, child: Text('System Default')),
+                            DropdownMenuItem(value: ThemeMode.light, child: Text('Light Mode')),
+                            DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark Mode')),
+                          ],
+                          onChanged: (mode) {
+                            if (mode != null) {
+                              ref.read(themeProvider.notifier).setTheme(mode);
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
               const Divider(),
               const SizedBox(height: 16),
 
@@ -738,7 +775,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     try {
                       final api = ApiService();
                       final status = await api.checkAppStatus();
-                      if (mounted) {
+                      if (context.mounted) {
                         showDialog(
                           context: context,
                           builder: (_) => AlertDialog(
@@ -749,7 +786,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       }
                     } catch (e) {
-                      if (mounted) {
+                      if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Server unreachable'), backgroundColor: Colors.red),
                         );
@@ -797,14 +834,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
-      prefixIcon: Icon(icon, color: const Color(0xFF009CA6)),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      labelStyle: TextStyle(color: Colors.grey.shade400),
+      prefixIcon: Icon(icon, color: AppTheme.primaryCyan),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF009CA6), width: 2),
+        borderSide: BorderSide(color: AppTheme.primaryCyan, width: 2),
       ),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: Colors.white.withOpacity(0.05),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
   }
@@ -828,11 +866,7 @@ class _Card extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
-      ),
+      decoration: AppTheme.glassDecoration(),
       child: Column(children: children),
     );
   }
@@ -859,22 +893,23 @@ class _StepIndicator extends StatelessWidget {
           width: 28,
           height: 28,
           decoration: BoxDecoration(
-            color: isActive ? const Color(0xFF009CA6) : Colors.grey.shade300,
+            color: isActive ? AppTheme.primaryCyan.withOpacity(0.2) : Colors.white.withOpacity(0.05),
             shape: BoxShape.circle,
+            border: Border.all(color: isActive ? AppTheme.primaryCyan : Colors.white.withOpacity(0.1)),
           ),
           child: Center(
             child: step > 0
-                ? Text('$step', style: TextStyle(color: isActive ? Colors.white : Colors.grey, fontWeight: FontWeight.bold, fontSize: 14))
-                : Icon(Icons.build, size: 14, color: isActive ? Colors.white : Colors.grey),
+                ? Text('$step', style: TextStyle(color: isActive ? AppTheme.primaryCyan : Colors.grey.shade500, fontWeight: FontWeight.bold, fontSize: 14))
+                : Icon(Icons.build, size: 14, color: isActive ? AppTheme.primaryCyan : Colors.grey.shade500),
           ),
         ),
         const SizedBox(width: 10),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isActive ? const Color(0xFF009CA6) : Colors.grey)),
+            Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isActive ? Colors.white : Colors.grey.shade400)),
             if (subtitle != null)
-              Text(subtitle!, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              Text(subtitle!, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
           ],
         ),
       ],
@@ -897,79 +932,67 @@ class _RegistrationResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color bgColor;
-    final Color borderColor;
-    final Color textColor;
+    final Color tintColor;
     final IconData icon;
 
     if (status == 'active') {
-      bgColor = Colors.green.shade50;
-      borderColor = Colors.green;
-      textColor = Colors.green.shade800;
+      tintColor = AppTheme.successGreen;
       icon = Icons.check_circle;
     } else if (status == 'pending_approval') {
-      bgColor = Colors.amber.shade50;
-      borderColor = Colors.amber.shade700;
-      textColor = Colors.brown;
+      tintColor = Colors.orange;
       icon = Icons.hourglass_top;
     } else if (status == 'pending_branch') {
-      bgColor = Colors.blue.shade50;
-      borderColor = Colors.blue;
-      textColor = Colors.blue.shade800;
+      tintColor = AppTheme.primaryCyan;
       icon = Icons.location_on;
     } else if (status == 'max_devices_reached') {
-      bgColor = Colors.red.shade50;
-      borderColor = Colors.red;
-      textColor = Colors.red.shade800;
+      tintColor = AppTheme.errorRed;
       icon = Icons.devices;
     } else {
-      bgColor = Colors.red.shade50;
-      borderColor = Colors.red;
-      textColor = Colors.red.shade800;
+      tintColor = AppTheme.errorRed;
       icon = Icons.error;
     }
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor, width: 1.5),
+      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+        color: tintColor.withOpacity(0.08),
+        border: Border.all(color: tintColor.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: borderColor, size: 24),
-              const SizedBox(width: 10),
+              Icon(icon, color: tintColor, size: 24),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   message,
-                  style: TextStyle(color: textColor, fontSize: 13, height: 1.4),
+                  style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4, fontWeight: FontWeight.w500),
                 ),
               ),
+              const SizedBox(width: 8),
               IconButton(
                 onPressed: onDismiss,
-                icon: Icon(Icons.close, size: 16, color: borderColor),
+                icon: const Icon(Icons.close, size: 16, color: Colors.white70),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
             ],
           ),
           if (success) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(true),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: borderColor,
+                  backgroundColor: tintColor,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                child: const Text('Done — Go to Punch', style: TextStyle(fontWeight: FontWeight.w600)),
+                child: const Text('Done — Go to Punch', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               ),
             ),
           ],

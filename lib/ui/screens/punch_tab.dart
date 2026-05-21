@@ -1,15 +1,20 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../providers/punch_provider.dart';
 import '../../providers/network_sync_provider.dart';
 import '../../services/app_settings.dart';
+import '../theme.dart';
 import 'qr_scan_screen.dart';
 import 'nfc_scan_screen.dart';
 import 'selfie_screen.dart';
 import 'settings_screen.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import '../widgets/biometric_session_timer.dart';
 
 class PunchTab extends ConsumerStatefulWidget {
   const PunchTab({super.key});
@@ -22,14 +27,33 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   String _employeeId = '';
   bool _isConfigured = false;
   List<String> _configGaps = [];
+  Position? _currentPosition;
+  StreamSubscription<Position>? _positionStream;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadSettings();
-    _requestPermissionsOnStartup();
+    _requestPermissionsOnStartup().then((_) {
+      _startLocationUpdates();
+    });
     Future.microtask(() => ref.read(networkSyncProvider).start());
+  }
+
+  void _startLocationUpdates() {
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5, // update every 5m for more responsive geofence badge
+      ),
+    ).listen((Position position) {
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
+      }
+    });
   }
 
   @override
@@ -41,6 +65,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
 
   @override
   void dispose() {
+    _positionStream?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -76,6 +101,19 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       await _loadSettings();
     }
   }
+
+  /// Haversine distance in meters between two GPS coordinates.
+  double _haversineDistance(double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371000.0; // Earth radius in meters
+    final dLat = _toRad(lat2 - lat1);
+    final dLon = _toRad(lon2 - lon1);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRad(lat1)) * math.cos(_toRad(lat2)) *
+            math.sin(dLon / 2) * math.sin(dLon / 2);
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  double _toRad(double deg) => deg * math.pi / 180.0;
 
   @override
   Widget build(BuildContext context) {
@@ -169,44 +207,239 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       ),
       body: Column(
         children: [
+          // Header Widget (Moved to the very top, out of map)
+          deviceConfig.when(
+            data: (config) {
+              final branchesList = config['branches'] as List<dynamic>?;
+              final firstBranch = branchesList != null && branchesList.isNotEmpty
+                  ? branchesList[0] as Map<String, dynamic>
+                  : null;
+              return _HeaderWidget(
+                employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
+                isConfigured: _isConfigured,
+                onSetupTap: _openSettings,
+                branches: branchesList?.map((b) => (b as Map<String, dynamic>)['name'] as String).toList(),
+                branchName: firstBranch?['name'] as String? ?? config['branch_name'] as String?,
+                deviceCount: config['device_count'] as int?,
+                maxDevices: config['max_devices'] as int?,
+              );
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+
           // Sync progress bar
           _SyncBar(syncState: ref.watch(syncStateProvider)),
+          
+          // Map View (Glassmorphism Container)
+          deviceConfig.when(
+            data: (config) {
+              final branchesList = config['branches'] as List<dynamic>?;
+              final firstBranch = branchesList != null && branchesList.isNotEmpty
+                  ? branchesList[0] as Map<String, dynamic>
+                  : null;
+              
+              double? branchLat = firstBranch?['lat'] as double? ?? config['lat'] as double?;
+              double? branchLng = firstBranch?['lng'] as double? ?? config['lng'] as double?;
+              double? radius = firstBranch?['radius'] as double? ?? config['radius'] as double?;
+              
+              return Container(
+                height: 350,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0x331E293B),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.white.withOpacity(0.1), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20, spreadRadius: -5),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        options: MapOptions(
+                          initialCenter: branchLat != null && branchLng != null
+                              ? LatLng(branchLat, branchLng)
+                              : (_currentPosition != null ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude) : const LatLng(0, 0)),
+                          initialZoom: 16.0,
+                          interactionOptions: const InteractionOptions(
+                            flags: InteractiveFlag.all, // ← fully interactive
+                          ),
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate: Theme.of(context).brightness == Brightness.dark
+                                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+                                : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                            subdomains: const ['a', 'b', 'c'],
+                            userAgentPackageName: 'com.example.app',
+                          ),
+                          if (branchLat != null && branchLng != null)
+                            CircleLayer(
+                              circles: [
+                                CircleMarker(
+                                  point: LatLng(branchLat, branchLng),
+                                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                                  borderStrokeWidth: 1,
+                                  borderColor: Theme.of(context).colorScheme.primary.withOpacity(0.5),
+                                  useRadiusInMeter: true,
+                                  radius: radius ?? 50.0,
+                                ),
+                              ],
+                            ),
+                          if (_currentPosition != null)
+                            MarkerLayer(
+                              markers: [
+                                Marker(
+                                  point: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                                  width: 40,
+                                  height: 40,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.primary,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white.withOpacity(0.8), width: 2),
+                                      boxShadow: [
+                                        BoxShadow(color: Theme.of(context).colorScheme.primary.withOpacity(0.5), blurRadius: 10, spreadRadius: 4),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                      // Gradient overlay at the bottom for text
+                      Positioned(
+                        bottom: 0, left: 0, right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [Colors.black.withOpacity(0.7), Colors.transparent],
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('GPS Accuracy', style: TextStyle(color: Colors.grey.shade400, fontSize: 10)),
+                                  Text(
+                                    _currentPosition != null
+                                        ? '± ${_currentPosition!.accuracy.toStringAsFixed(0)} m'
+                                        : 'Acquiring...',
+                                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('Timezone', style: TextStyle(color: Colors.grey.shade400, fontSize: 10)),
+                                  Text(
+                                    DateTime.now().timeZoneName,
+                                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              )
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Top Badge — live geofence status
+                      Positioned(
+                        top: 16,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Builder(builder: (ctx) {
+                            // Calculate live distance from current position to branch
+                            String badgeText = 'Locating...';
+                            Color badgeColor = Colors.grey;
+                            IconData badgeIcon = Icons.location_searching;
+
+                            if (_currentPosition != null && branchLat != null && branchLng != null) {
+                              final distanceM = _haversineDistance(
+                                _currentPosition!.latitude, _currentPosition!.longitude,
+                                branchLat, branchLng,
+                              );
+                              final r = radius ?? 50.0;
+                              if (distanceM <= r) {
+                                badgeText = '✓ Inside Geofence (${distanceM.toStringAsFixed(0)}m from center)';
+                                badgeColor = AppTheme.successGreen;
+                                badgeIcon = Icons.check_circle_outline;
+                              } else if (distanceM <= r * 1.3) {
+                                badgeText = '⚠ Near boundary (${distanceM.toStringAsFixed(0)}m / ${r.toStringAsFixed(0)}m)';
+                                badgeColor = Colors.orange;
+                                badgeIcon = Icons.warning_amber_outlined;
+                              } else {
+                                badgeText = '✗ Outside Geofence (${distanceM.toStringAsFixed(0)}m away)';
+                                badgeColor = AppTheme.errorRed;
+                                badgeIcon = Icons.location_off_outlined;
+                              }
+                            }
+
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: badgeColor.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: badgeColor.withOpacity(0.6)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(badgeIcon, size: 14, color: badgeColor),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    badgeText,
+                                    style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+            loading: () => const SizedBox(height: 350, child: Center(child: CircularProgressIndicator())),
+            error: (err, _) => SizedBox(
+              height: 350,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.location_off, size: 40, color: Colors.grey),
+                    const SizedBox(height: 12),
+                    Text('Could not load map config', style: TextStyle(color: Colors.grey.shade400)),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: () => ref.invalidate(deviceConfigProvider),
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
           Expanded(
             child: Container(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            deviceConfig.when(
-              data: (config) {
-                final branchesList = config['branches'] as List<dynamic>?;
-                final firstBranch = branchesList != null && branchesList.isNotEmpty
-                    ? branchesList[0] as Map<String, dynamic>
-                    : null;
-                return _HeaderWidget(
-                  employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
-                  isConfigured: _isConfigured,
-                  onSetupTap: _openSettings,
-                  branches: branchesList
-                      ?.map((b) => (b as Map<String, dynamic>)['name'] as String)
-                      .toList(),
-                  branchName: firstBranch?['name'] as String? ?? config['branch_name'] as String?,
-                  deviceCount: config['device_count'] as int?,
-                  maxDevices: config['max_devices'] as int?,
-                );
-              },
-              loading: () => _HeaderWidget(
-                employeeId: _employeeId,
-                isConfigured: _isConfigured,
-                onSetupTap: _openSettings,
-              ),
-              error: (err, _) => _HeaderWidget(
-                employeeId: _employeeId,
-                isConfigured: _isConfigured,
-                onSetupTap: _openSettings,
-                branchName: 'Connection Error',
-              ),
-            ),
             const Spacer(),
 
             // Config / Branch Status logic
@@ -272,6 +505,11 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                             )
                           : const SizedBox.shrink(key: ValueKey('online_banner')),
                       ),
+                      if (punchState.lastBiometricAuthTime != null && punchState.biometricSessionSeconds > 0)
+                        BiometricSessionTimer(
+                          lastAuthTime: punchState.lastBiometricAuthTime!,
+                          sessionSeconds: punchState.biometricSessionSeconds,
+                        ),
                       ref.watch(punchTypesProvider).when(
                         data: (punchTypes) {
                           if (punchTypes.isEmpty) {
@@ -303,18 +541,28 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         loading: () => const CircularProgressIndicator(color: Color(0xFF009CA6)),
                         error: (_, __) => const SizedBox.shrink(),
                       ),
-                      const SizedBox(height: 8),
-                      TextButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Attempting to sync offline data...')),
-                          );
-                          ref.read(networkSyncProvider).syncOfflinePunches();
-                        },
-                        icon: const Icon(Icons.sync),
-                        label: const Text('Sync Offline Data'),
-                        style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary),
+                      const SizedBox(height: 16),
+                      // GPS and Sync Status
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.circle, size: 8, color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(width: 8),
+                          const Text('GPS Signal Strong', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                        ],
                       ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.cloud_off, size: 14, color: Colors.grey.shade500),
+                          const SizedBox(width: 8),
+                          Text('Offline Mode Active (Pending Sync)', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Text('\u00A9 2024 IT Dept HRM Group', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+                      const SizedBox(height: 16),
                     ],
                   );
                 },
@@ -324,6 +572,10 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
             _StatusFeedback(
               state: punchState,
               onDismiss: () => ref.read(punchStateProvider.notifier).reset(),
+              onRetry: () {
+                ref.read(punchStateProvider.notifier).reset();
+                ref.read(punchStateProvider.notifier).retryWithQR();
+              },
             ),
           ],
         ),
@@ -431,82 +683,68 @@ class _HeaderWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 4,
-      shadowColor: Colors.black26,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Colors.white, const Color(0xFFE0F2F1)],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Theme.of(context).colorScheme.primary, width: 2),
+              image: const DecorationImage(
+                image: AssetImage('assets/images/avatar_placeholder.png'), // Add a placeholder image or icon
+                fit: BoxFit.cover,
+              ),
+              color: Theme.of(context).colorScheme.surface,
+            ),
+            child: isConfigured ? null : const Icon(Icons.person_off, color: Colors.white, size: 24),
           ),
-        ),
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: _hasValidBranch ? const Color(0xFF009CA6).withOpacity(0.2) : Colors.black12,
-                    blurRadius: 10, spreadRadius: 2,
-                  )
-                ]
-              ),
-              child: CircleAvatar(
-                radius: 40,
-                backgroundColor: isConfigured ? const Color(0xFF009CA6) : Colors.grey.shade300,
-                child: Icon(
-                  isConfigured ? Icons.person : Icons.person_off,
-                  size: 40,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              isConfigured ? employeeId : 'Setup Required',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  _hasValidBranch ? Icons.location_on : Icons.location_off,
-                  size: 14,
-                  color: _hasValidBranch ? const Color(0xFF009CA6) : Colors.grey,
-                ),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    _branchDisplay,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: branchName == 'Connection Error' ? Colors.red : Colors.grey.shade700,
-                      fontWeight: _hasValidBranch ? FontWeight.w600 : FontWeight.normal,
-                    ),
+                Text(
+                  isConfigured ? employeeId : 'Setup Required',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                    color: Colors.white,
                   ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      _hasValidBranch ? Icons.location_on : Icons.location_off,
+                      size: 14,
+                      color: _hasValidBranch ? Theme.of(context).colorScheme.primary : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        _branchDisplay,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: branchName == 'Connection Error' ? Colors.red : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            if (deviceCount != null && maxDevices != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Devices: $deviceCount/$maxDevices',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: deviceCount! >= maxDevices! ? Colors.red : Colors.grey.shade500,
-                  fontWeight: deviceCount! >= maxDevices! ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ],
-          ],
-        ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_none, color: Colors.white),
+            onPressed: () {},
+          )
+        ],
       ),
     );
   }
@@ -520,22 +758,21 @@ class _PendingAssignmentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.amber.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.amber.shade200, width: 2),
+      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+        color: Colors.orange.withOpacity(0.08),
+        border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.amber.shade100, shape: BoxShape.circle),
-            child: const Icon(Icons.app_registration_rounded, size: 40, color: Colors.amber),
+            decoration: BoxDecoration(color: Colors.orange.withOpacity(0.15), shape: BoxShape.circle),
+            child: const Icon(Icons.app_registration_rounded, size: 40, color: Colors.orange),
           ),
           const SizedBox(height: 16),
-          const Text('Device Not Ready', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.brown)),
+          const Text('Device Pending Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
           const SizedBox(height: 8),
-          Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.brown, height: 1.4)),
+          Text(message, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade300, height: 1.4, fontSize: 14)),
         ],
       ),
     );
@@ -557,26 +794,25 @@ class _MaxDevicesReachedCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.red.shade300, width: 2),
+      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+        color: AppTheme.errorRed.withOpacity(0.08),
+        border: Border.all(color: AppTheme.errorRed.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.red.shade100, shape: BoxShape.circle),
-            child: const Icon(Icons.devices, size: 40, color: Colors.red),
+            decoration: BoxDecoration(color: AppTheme.errorRed.withOpacity(0.15), shape: BoxShape.circle),
+            child: const Icon(Icons.devices, size: 40, color: AppTheme.errorRed),
           ),
           const SizedBox(height: 16),
-          const Text('Device Limit Reached', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.red)),
+          const Text('Device Limit Reached', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
           const SizedBox(height: 8),
-          Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red, height: 1.4)),
-          const SizedBox(height: 8),
+          Text(message, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade300, height: 1.4, fontSize: 14)),
+          const SizedBox(height: 12),
           Text(
-            'You have $deviceCount of $maxDevices allowed devices.',
-            style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
+            'Active Devices: $deviceCount / $maxDevices',
+            style: const TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.bold, fontSize: 15),
           ),
         ],
       ),
@@ -611,10 +847,9 @@ class _NotConfiguredCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange.shade300, width: 2),
+      decoration: AppTheme.glassDecoration(borderRadius: 20).copyWith(
+        color: Colors.orange.withOpacity(0.08),
+        border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
         children: [
@@ -622,7 +857,7 @@ class _NotConfiguredCard extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: Colors.orange.shade100, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.15), shape: BoxShape.circle),
                 child: const Icon(Icons.warning_amber_rounded, size: 28, color: Colors.orange),
               ),
               const SizedBox(width: 12),
@@ -630,8 +865,9 @@ class _NotConfiguredCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Setup Required', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-                    Text('Complete these steps to start clocking in', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                    Text('Setup Required', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.white)),
+                    SizedBox(height: 2),
+                    Text('Complete these steps to start clocking in', style: TextStyle(fontSize: 13, color: Colors.white70)),
                   ],
                 ),
               ),
@@ -642,29 +878,29 @@ class _NotConfiguredCard extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
               children: [
-                Icon(s.done ? Icons.check_circle : Icons.radio_button_unchecked, size: 18, color: s.done ? Colors.green : Colors.grey),
+                Icon(s.done ? Icons.check_circle : Icons.radio_button_unchecked, size: 18, color: s.done ? AppTheme.successGreen : Colors.white38),
                 const SizedBox(width: 8),
-                Icon(s.icon, size: 16, color: s.done ? Colors.green : Colors.grey),
+                Icon(s.icon, size: 16, color: s.done ? AppTheme.successGreen : Colors.white38),
                 const SizedBox(width: 8),
-                Text(s.label, style: TextStyle(fontSize: 14, color: s.done ? Colors.green.shade700 : Colors.grey.shade700, fontWeight: s.done ? FontWeight.w600 : FontWeight.normal)),
+                Text(s.label, style: TextStyle(fontSize: 14, color: s.done ? AppTheme.successGreen : Colors.white70, fontWeight: s.done ? FontWeight.w600 : FontWeight.normal)),
                 const Spacer(),
                 if (s.done)
-                  const Text('Done', style: TextStyle(fontSize: 11, color: Colors.green)),
+                  const Text('Done', style: TextStyle(fontSize: 11, color: AppTheme.successGreen, fontWeight: FontWeight.bold)),
               ],
             ),
           )),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: onSetupTap,
               icon: const Icon(Icons.settings, size: 18),
-              label: const Text('Complete Setup'),
+              label: const Text('Complete Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade700,
+                backgroundColor: Colors.orange,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ),
@@ -745,11 +981,16 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
 
   @override
   Widget build(BuildContext context) {
-    final effectiveColor = widget.enabled ? widget.color : Colors.grey;
-    final gradient = LinearGradient(
-      colors: [effectiveColor, effectiveColor.withBlue((effectiveColor.blue + 30).clamp(0, 255))],
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
+    final isOut = widget.label.toLowerCase().contains('out');
+    final primary = Theme.of(context).colorScheme.primary;
+    
+    // Glassmorphism styling based on button type
+    final border = isOut ? Border.all(color: Colors.transparent) : Border.all(color: primary.withOpacity(0.5), width: 1.5);
+    final bgColor = isOut ? Colors.white.withOpacity(0.05) : primary.withOpacity(0.15);
+    final shadow = isOut ? const BoxShadow(color: Colors.transparent) : BoxShadow(
+      color: primary.withOpacity(0.2),
+      blurRadius: 16,
+      offset: const Offset(0, 4),
     );
 
     return AnimatedBuilder(
@@ -760,17 +1001,12 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
       ),
       child: Container(
         width: double.infinity,
-        height: 75,
+        height: 64,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: gradient,
-          boxShadow: [
-            BoxShadow(
-              color: effectiveColor.withOpacity(widget.enabled ? 0.35 : 0.1),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
-            ),
-          ],
+          color: bgColor,
+          borderRadius: BorderRadius.circular(16),
+          border: border,
+          boxShadow: [shadow],
         ),
         child: Material(
           color: Colors.transparent,
@@ -790,30 +1026,26 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.25),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                    padding: const EdgeInsets.all(8),
                     child: widget.loading
                         ? const SizedBox(
-                            width: 28, height: 28,
+                            width: 24, height: 24,
                             child: CircularProgressIndicator(
                               color: Colors.white,
-                              strokeWidth: 3,
+                              strokeWidth: 2,
                             ),
                           )
-                        : Icon(widget.icon, color: Colors.white, size: 28),
+                        : Icon(widget.icon, color: isOut ? Colors.red.shade400 : primary, size: 24),
                   ),
-                  const SizedBox(width: 20),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       widget.loading ? 'Processing...' : widget.label,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.2,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
                       ),
                     ),
                   ),
@@ -832,10 +1064,12 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
 class _StatusFeedback extends StatefulWidget {
   final PunchState state;
   final VoidCallback onDismiss;
+  final VoidCallback? onRetry;
 
   const _StatusFeedback({
     required this.state,
     required this.onDismiss,
+    this.onRetry,
   });
 
   @override
@@ -863,9 +1097,14 @@ class _StatusFeedbackState extends State<_StatusFeedback> {
     _autoDismissTimer?.cancel();
     final status = widget.state.status;
     if (status == PunchStatus.success || status == PunchStatus.offline) {
+      // ✅ Tactile success confirmation
+      HapticFeedback.heavyImpact();
       _autoDismissTimer = Timer(const Duration(seconds: 4), () {
         if (mounted) widget.onDismiss();
       });
+    } else if (status == PunchStatus.error) {
+      // ❌ Tactile error feedback
+      HapticFeedback.vibrate();
     }
   }
 
@@ -902,48 +1141,38 @@ class _StatusFeedbackState extends State<_StatusFeedback> {
     }
 
 
-    Color bgColor = Colors.red.shade50;
-    Color borderColor = Colors.red;
-    Color textColor = Colors.red.shade900;
+    Color tintColor = AppTheme.errorRed;
     IconData icon = Icons.error;
     String mainText = state.errorMessage?.replaceAll('Exception: ', '') ?? 'Unknown error';
 
     final isGeofenceError = isError && (mainText.contains('Outside assigned branches') || mainText.toLowerCase().contains('geofence'));
 
     if (isSuccess) {
-      bgColor = Colors.green.shade50;
-      borderColor = Colors.green;
-      textColor = Colors.green.shade900;
+      tintColor = AppTheme.successGreen;
       icon = Icons.check_circle;
       mainText = state.result?['message'] ?? 'Punch Successful';
     } else if (isOffline) {
-      bgColor = Colors.blue.shade50;
-      borderColor = Colors.blue;
-      textColor = Colors.blue.shade900;
+      tintColor = AppTheme.primaryCyan;
       icon = Icons.cloud_off;
       mainText = 'Saved Offline (Will sync when online)';
     } else if (isGeofenceError) {
-      bgColor = Colors.orange.shade50;
-      borderColor = Colors.orange;
-      textColor = Colors.orange.shade900;
+      tintColor = Colors.orange;
       icon = Icons.location_off;
     } else if (isError) {
       mainText = 'Error: $mainText';
     }
 
-
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
+      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+        color: tintColor.withOpacity(0.08),
+        border: Border.all(color: tintColor.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              Icon(icon, color: borderColor),
+              Icon(icon, color: tintColor),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -951,39 +1180,60 @@ class _StatusFeedbackState extends State<_StatusFeedback> {
                   children: [
                     Text(
                       mainText,
-                      style: TextStyle(
-                        color: textColor,
+                      style: const TextStyle(
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
+                        fontSize: 14,
                       ),
                     ),
-                    if (isSuccess && displayTime.isNotEmpty)
+                    if (isSuccess && displayTime.isNotEmpty) ...[
+                      const SizedBox(height: 2),
                       Text(
                         'Local time: $displayTime',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style: const TextStyle(fontSize: 12, color: Colors.white70),
                       ),
+                    ],
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               IconButton(
                 onPressed: widget.onDismiss,
                 icon: const Icon(Icons.close, size: 18),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                color: borderColor,
+                color: Colors.white70,
               ),
             ],
           ),
-          if (isError) ...[
+          if (isError && widget.onRetry != null && !isGeofenceError) ...[
             const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: widget.onDismiss,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('Try Again', style: TextStyle(fontSize: 13)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: borderColor,
-                side: BorderSide(color: borderColor),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: widget.onRetry,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Retry'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: tintColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ] else if (isError) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: widget.onDismiss,
+                icon: Icon(Icons.refresh, size: 16, color: tintColor),
+                label: Text('Try Again', style: TextStyle(fontSize: 13, color: tintColor, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: tintColor.withOpacity(0.5)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
               ),
             ),
           ],
@@ -1009,30 +1259,22 @@ class _DeviceCompromisedBanner extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.red.shade400, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.red.withOpacity(0.15),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+        color: AppTheme.errorRed.withOpacity(0.08),
+        border: Border.all(color: AppTheme.errorRed.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.red.shade100,
+              color: AppTheme.errorRed.withOpacity(0.15),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.gpp_bad,
               size: 48,
-              color: Colors.red,
+              color: AppTheme.errorRed,
             ),
           ),
           const SizedBox(height: 16),
@@ -1041,7 +1283,7 @@ class _DeviceCompromisedBanner extends StatelessWidget {
             style: TextStyle(
               fontWeight: FontWeight.bold,
               fontSize: 20,
-              color: Colors.red,
+              color: Colors.white,
               letterSpacing: 1.2,
             ),
           ),
@@ -1050,9 +1292,10 @@ class _DeviceCompromisedBanner extends StatelessWidget {
             message,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Colors.red,
+              color: AppTheme.errorRed,
               fontSize: 14,
               height: 1.4,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 20),
@@ -1061,13 +1304,13 @@ class _DeviceCompromisedBanner extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: onDismiss,
               icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Dismiss'),
+              label: const Text('Dismiss', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
+                backgroundColor: AppTheme.errorRed,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ),
