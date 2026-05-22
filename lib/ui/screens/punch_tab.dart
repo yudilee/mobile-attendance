@@ -16,6 +16,13 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../widgets/biometric_session_timer.dart';
 
+double? _parseDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
+}
+
 class PunchTab extends ConsumerStatefulWidget {
   const PunchTab({super.key});
 
@@ -215,11 +222,52 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                   ? branchesList[0] as Map<String, dynamic>
                   : null;
               
-              double? branchLat = double.tryParse((firstBranch?['latitude'] ?? config['latitude'])?.toString() ?? '');
-              double? branchLng = double.tryParse((firstBranch?['longitude'] ?? config['longitude'])?.toString() ?? '');
-              double? radius = double.tryParse((firstBranch?['radius_meters'] ?? config['radius_meters'])?.toString() ?? '');
+              double? branchLat = _parseDouble(firstBranch?['latitude'] ?? config['latitude']);
+              double? branchLng = _parseDouble(firstBranch?['longitude'] ?? config['longitude']);
 
-              
+              // Build a flat list of all valid geofence areas: branch center + any active checkpoints (multipoints)
+              final List<Map<String, dynamic>> allGeofences = [];
+              if (branchesList != null) {
+                for (final branch in branchesList) {
+                  if (branch is Map) {
+                    allGeofences.add({
+                      'id': branch['id'],
+                      'name': branch['name'] as String? ?? 'Branch',
+                      'latitude': _parseDouble(branch['latitude']),
+                      'longitude': _parseDouble(branch['longitude']),
+                      'radius_meters': _parseDouble(branch['radius_meters']) ?? 50.0,
+                      'is_checkpoint': false,
+                    });
+                    
+                    final cps = branch['checkpoints'] as List<dynamic>?;
+                    if (cps != null) {
+                      for (final cp in cps) {
+                        if (cp is Map && cp['is_active'] == true) {
+                          allGeofences.add({
+                            'id': cp['id'],
+                            'branch_id': cp['branch_id'],
+                            'name': cp['name'] as String? ?? 'Checkpoint',
+                            'latitude': _parseDouble(cp['latitude'] ?? cp['lat']),
+                            'longitude': _parseDouble(cp['longitude'] ?? cp['lon']),
+                            'radius_meters': _parseDouble(cp['radius_meters'] ?? cp['radius']) ?? 50.0,
+                            'is_checkpoint': true,
+                          });
+                        }
+                      }
+                    }
+                  }
+                }
+              } else if (config['latitude'] != null) {
+                allGeofences.add({
+                  'id': config['branch_id'] ?? 0,
+                  'name': config['branch_name'] ?? 'Branch',
+                  'latitude': _parseDouble(config['latitude']),
+                  'longitude': _parseDouble(config['longitude']),
+                  'radius_meters': _parseDouble(config['radius_meters']) ?? 50.0,
+                  'is_checkpoint': false,
+                });
+              }
+
               return Container(
                 height: 350,
                 margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -254,18 +302,25 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                             subdomains: const ['a', 'b', 'c', 'd'],
                           ),
                           CircleLayer(
-                            circles: (branchesList ?? (config['latitude'] != null ? [{'latitude': config['latitude'], 'longitude': config['longitude'], 'radius_meters': config['radius_meters']}] : []))
-                                .map((b) => CircleMarker(
-                                      point: LatLng(
-                                        b is Map ? (double.tryParse(b['latitude']?.toString() ?? '') ?? branchLat ?? 0.0) : branchLat ?? 0.0,
-                                        b is Map ? (double.tryParse(b['longitude']?.toString() ?? '') ?? branchLng ?? 0.0) : branchLng ?? 0.0,
-                                      ),
-                                      color: AppTheme.secondaryViolet.withOpacity(0.2),
-                                      borderStrokeWidth: 2,
-                                      borderColor: AppTheme.secondaryViolet.withOpacity(0.8),
-                                      useRadiusInMeter: true,
-                                      radius: b is Map ? (double.tryParse(b['radius_meters']?.toString() ?? '') ?? radius ?? 50.0) : radius ?? 50.0,
-                                    ))
+                            circles: allGeofences
+                                .where((b) => b['latitude'] != null && b['longitude'] != null)
+                                .map((b) {
+                                  final isCp = b['is_checkpoint'] == true;
+                                  final circleColor = isCp 
+                                      ? AppTheme.primaryCyan.withOpacity(0.15) 
+                                      : AppTheme.secondaryViolet.withOpacity(0.15);
+                                  final borderColor = isCp 
+                                      ? AppTheme.primaryCyan.withOpacity(0.7) 
+                                      : AppTheme.secondaryViolet.withOpacity(0.7);
+                                  return CircleMarker(
+                                    point: LatLng(b['latitude'] as double, b['longitude'] as double),
+                                    color: circleColor,
+                                    borderStrokeWidth: isCp ? 1.5 : 2,
+                                    borderColor: borderColor,
+                                    useRadiusInMeter: true,
+                                    radius: b['radius_meters'] as double,
+                                  );
+                                })
                                 .toList(),
                           ),
                           if (_currentPosition != null)
@@ -338,13 +393,13 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         right: 0,
                         child: Center(
                           child: Builder(builder: (ctx) {
-                            // Calculate live distance from current position to branch
+                            // Calculate live distance from current position to nearest active geofence/checkpoint
                             String badgeText = 'Locating...';
                             Color badgeColor = Colors.grey;
                             IconData badgeIcon = Icons.location_searching;
 
                             if (_currentPosition != null) {
-                              final List<dynamic> checkpoints = branchesList ?? (config['latitude'] != null ? [config] : []);
+                              final List<Map<String, dynamic>> checkpoints = allGeofences;
                               Map<String, dynamic>? activeCheckpoint;
                               double activeDistance = double.infinity;
                               String status = 'outside'; // 'inside', 'near', 'outside'
@@ -359,34 +414,32 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                               double minOutsideDist = double.infinity;
 
                               for (final cp in checkpoints) {
-                                if (cp is Map) {
-                                  final cpLat = double.tryParse((cp['latitude'] ?? cp['lat'] ?? branchLat)?.toString() ?? '');
-                                  final cpLng = double.tryParse((cp['longitude'] ?? cp['lon'] ?? branchLng)?.toString() ?? '');
-                                  final cpRadius = double.tryParse((cp['radius_meters'] ?? cp['radius'] ?? radius)?.toString() ?? '') ?? 50.0;
+                                final cpLat = cp['latitude'] as double?;
+                                final cpLng = cp['longitude'] as double?;
+                                final cpRadius = cp['radius_meters'] as double? ?? 50.0;
 
-                                  if (cpLat != null && cpLng != null) {
-                                    final dist = _haversineDistance(
-                                      _currentPosition!.latitude,
-                                      _currentPosition!.longitude,
-                                      cpLat,
-                                      cpLng,
-                                    );
+                                if (cpLat != null && cpLng != null) {
+                                  final dist = _haversineDistance(
+                                    _currentPosition!.latitude,
+                                    _currentPosition!.longitude,
+                                    cpLat,
+                                    cpLng,
+                                  );
 
-                                    if (dist <= cpRadius) {
-                                      if (dist < minInsideDist) {
-                                        minInsideDist = dist;
-                                        nearestInside = Map<String, dynamic>.from(cp);
-                                      }
-                                    } else if (dist <= cpRadius * 1.3) {
-                                      if (dist < minNearDist) {
-                                        minNearDist = dist;
-                                        nearestNear = Map<String, dynamic>.from(cp);
-                                      }
-                                    } else {
-                                      if (dist < minOutsideDist) {
-                                        minOutsideDist = dist;
-                                        nearestOutside = Map<String, dynamic>.from(cp);
-                                      }
+                                  if (dist <= cpRadius) {
+                                    if (dist < minInsideDist) {
+                                      minInsideDist = dist;
+                                      nearestInside = cp;
+                                    }
+                                  } else if (dist <= cpRadius * 1.3) {
+                                    if (dist < minNearDist) {
+                                      minNearDist = dist;
+                                      nearestNear = cp;
+                                    }
+                                  } else {
+                                    if (dist < minOutsideDist) {
+                                      minOutsideDist = dist;
+                                      nearestOutside = cp;
                                     }
                                   }
                                 }
@@ -407,7 +460,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                               }
 
                               if (activeCheckpoint != null) {
-                                final name = activeCheckpoint['name'] ?? activeCheckpoint['branch_name'] ?? 'Checkpoint';
+                                final name = activeCheckpoint['name'] ?? 'Checkpoint';
                                 if (status == 'inside') {
                                   badgeText = '✓ Inside $name (${activeDistance.toStringAsFixed(0)}m)';
                                   badgeColor = AppTheme.successGreen;
@@ -622,6 +675,11 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                             gpsColor = AppTheme.errorRed;
                           }
                         }
+                        
+                        final config = deviceConfig.value;
+                        final isCached = config != null && config['_cached'] == true;
+                        final pendingSyncCount = ref.watch(syncStateProvider).pendingCount;
+                        
                         return Column(
                           children: [
                             Row(
@@ -632,15 +690,26 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                                 Text(gpsText, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13, fontWeight: FontWeight.w500)),
                               ],
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.cloud_off, size: 14, color: Colors.grey.shade500),
-                                const SizedBox(width: 8),
-                                Text('Offline Mode Active (Pending Sync)', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-                              ],
-                            ),
+                            if (isCached || pendingSyncCount > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isCached ? Icons.cloud_off : Icons.cloud_queue,
+                                    size: 14,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    isCached
+                                        ? 'Offline Mode Active'
+                                        : 'Pending Sync ($pendingSyncCount punch(es))',
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
                         );
                       }),
