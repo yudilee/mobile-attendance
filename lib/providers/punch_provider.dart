@@ -402,28 +402,35 @@ final deviceConfigProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final security = ref.watch(securityServiceProvider);
   final offlineSync = ref.watch(offlineSyncServiceProvider);
 
-  final employeeId = await AppSettings.getEmployeeId();
-  if (employeeId.isEmpty) {
+  final serverUrl = await AppSettings.getServerUrl();
+  final apiKey = await AppSettings.getApiKey();
+  if (serverUrl.isEmpty || apiKey.isEmpty) {
     throw Exception(
-      'Device not configured yet. Please enter your Employee ID in Settings.',
+      'Device not configured yet. Please configure Server URL and API Key in Settings.',
     );
   }
 
+  final employeeId = await AppSettings.getEmployeeId();
   final uuid = await security.getDeviceUniqueId();
 
   try {
     final config = await api.getDeviceConfig(
-      employeeId: employeeId,
+      employeeId: employeeId.isNotEmpty ? employeeId : null,
       deviceUuid: uuid,
     );
     // Cache config for offline use
     await offlineSync.cacheConfig(config);
 
-    if (config['employee_name'] != null) {
-      await AppSettings.setEmployeeName(config['employee_name'] as String);
+    final empId = config['employee_id'] as String?;
+    if (empId != null && empId.isNotEmpty) {
+      await AppSettings.setEmployeeId(empId);
     }
 
-    
+    final empName = config['employee_name'] as String?;
+    if (empName != null && empName.isNotEmpty) {
+      await AppSettings.setEmployeeName(empName);
+    }
+
     // Also fetch and cache punch types
     try {
       final punchTypes = await api.getPunchTypes();

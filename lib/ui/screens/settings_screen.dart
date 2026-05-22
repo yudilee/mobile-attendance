@@ -154,6 +154,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           await AppSettings.setApiKey(apiKey);
           _apiKeyCtrl.text = apiKey;
         }
+
+        final empId = response['employee_id'] as String?;
+        if (empId != null && empId.isNotEmpty) {
+          await AppSettings.setEmployeeId(empId);
+        }
         
         final empName = response['employee_name'] as String?;
         if (empName != null && empName.isNotEmpty) {
@@ -204,9 +209,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final deviceCount = result['device_count'] as int? ?? 1;
       final maxDevices = result['max_devices'] as int? ?? 5;
       final empName = result['employee_name'] as String?;
-      
       if (empName != null && empName.isNotEmpty) {
         await AppSettings.setEmployeeName(empName);
+      }
+
+      final empId = result['employee_id'] as String?;
+      if (empId != null && empId.isNotEmpty) {
+        await AppSettings.setEmployeeId(empId);
       }
 
       String message;

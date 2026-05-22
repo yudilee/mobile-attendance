@@ -23,6 +23,12 @@ double? _parseDouble(dynamic value) {
   return null;
 }
 
+Map<String, dynamic>? _parseMap(dynamic value) {
+  if (value == null) return null;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
 class PunchTab extends ConsumerStatefulWidget {
   const PunchTab({super.key});
 
@@ -191,7 +197,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
             data: (config) {
               final branchesList = config['branches'] as List<dynamic>?;
               final firstBranch = branchesList != null && branchesList.isNotEmpty
-                  ? branchesList[0] as Map<String, dynamic>
+                  ? _parseMap(branchesList[0])
                   : null;
               return _HeaderWidget(
                 employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
@@ -199,7 +205,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                 isConfigured: _isConfigured,
                 onSetupTap: _openSettings,
                 onRefresh: () => ref.invalidate(deviceConfigProvider),
-                branches: branchesList?.map((b) => (b as Map<String, dynamic>)['name'] as String).toList(),
+                branches: branchesList?.map((b) => _parseMap(b)?['name'] as String? ?? '').where((name) => name.isNotEmpty).toList(),
                 branchName: firstBranch?['name'] as String? ?? config['branch_name'] as String?,
                 deviceCount: config['device_count'] as int?,
                 maxDevices: config['max_devices'] as int?,
@@ -219,7 +225,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
             data: (config) {
               final branchesList = config['branches'] as List<dynamic>?;
               final firstBranch = branchesList != null && branchesList.isNotEmpty
-                  ? branchesList[0] as Map<String, dynamic>
+                  ? _parseMap(branchesList[0])
                   : null;
               
               double? branchLat = _parseDouble(firstBranch?['latitude'] ?? config['latitude']);
