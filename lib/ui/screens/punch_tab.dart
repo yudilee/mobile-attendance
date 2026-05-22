@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,7 +9,9 @@ import 'package:geolocator/geolocator.dart';
 import '../../providers/punch_provider.dart';
 import '../../providers/network_sync_provider.dart';
 import '../../services/app_settings.dart';
+import '../../services/notification_service.dart';
 import '../theme.dart';
+import '../../database/app_database.dart';
 import 'qr_scan_screen.dart';
 import 'nfc_scan_screen.dart';
 import 'selfie_screen.dart';
@@ -43,6 +47,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   Position? _currentPosition;
   StreamSubscription<Position>? _positionStream;
   final MapController _mapController = MapController();
+  String _lastGeofenceState = 'unknown';
 
   @override
   void initState() {
@@ -56,16 +61,44 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   }
 
   void _startLocationUpdates() {
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+    LocationSettings locationSettings;
+    if (Platform.isAndroid) {
+      locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 5, // update every 5m for more responsive geofence badge
-      ),
+        distanceFilter: 5,
+        intervalDuration: const Duration(seconds: 10),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "Tracking geofence for clock-in reminders",
+          notificationTitle: "Attendance Tracker Active",
+          enableWakeLock: true,
+        ),
+      );
+    } else if (Platform.isIOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      );
+    }
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
     ).listen((Position position) {
       if (mounted) {
         setState(() {
           _currentPosition = position;
         });
+
+        // Dynamic background geofence transition reminders
+        _processGeofenceNotifications(position);
+
         // Try centering map on current location if the controller is ready
         try {
           _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
@@ -134,6 +167,133 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
 
   double _toRad(double deg) => deg * math.pi / 180.0;
 
+  void _processGeofenceNotifications(Position position) {
+    final deviceConfig = ref.read(deviceConfigProvider).value;
+    if (deviceConfig == null) return;
+
+    final branchesList = deviceConfig['branches'] as List<dynamic>?;
+    final List<Map<String, dynamic>> allGeofences = [];
+    if (branchesList != null) {
+      for (final branch in branchesList) {
+        if (branch is Map) {
+          allGeofences.add({
+            'id': branch['id'],
+            'name': branch['name'] as String? ?? 'Branch',
+            'latitude': _parseDouble(branch['latitude']),
+            'longitude': _parseDouble(branch['longitude']),
+            'radius_meters': _parseDouble(branch['radius_meters']) ?? 50.0,
+            'is_checkpoint': false,
+          });
+          
+          final cps = branch['checkpoints'] as List<dynamic>?;
+          if (cps != null) {
+            for (final cp in cps) {
+              if (cp is Map && cp['is_active'] == true) {
+                allGeofences.add({
+                  'id': cp['id'],
+                  'branch_id': cp['branch_id'],
+                  'name': cp['name'] as String? ?? 'Checkpoint',
+                  'latitude': _parseDouble(cp['latitude'] ?? cp['lat']),
+                  'longitude': _parseDouble(cp['longitude'] ?? cp['lon']),
+                  'radius_meters': _parseDouble(cp['radius_meters'] ?? cp['radius']) ?? 50.0,
+                  'is_checkpoint': true,
+                });
+              }
+            }
+          }
+        }
+      }
+    } else if (deviceConfig['latitude'] != null) {
+      allGeofences.add({
+        'id': deviceConfig['branch_id'] ?? 0,
+        'name': deviceConfig['branch_name'] ?? 'Branch',
+        'latitude': _parseDouble(deviceConfig['latitude']),
+        'longitude': _parseDouble(deviceConfig['longitude']),
+        'radius_meters': _parseDouble(deviceConfig['radius_meters']) ?? 50.0,
+        'is_checkpoint': false,
+      });
+    }
+
+    if (allGeofences.isEmpty) return;
+
+    Map<String, dynamic>? activeCheckpoint;
+    String status = 'outside'; // 'inside', 'near', 'outside'
+
+    Map<String, dynamic>? nearestInside;
+    double minInsideDist = double.infinity;
+
+    Map<String, dynamic>? nearestNear;
+    double minNearDist = double.infinity;
+
+    Map<String, dynamic>? nearestOutside;
+    double minOutsideDist = double.infinity;
+
+    for (final cp in allGeofences) {
+      final cpLat = cp['latitude'] as double?;
+      final cpLng = cp['longitude'] as double?;
+      final cpRadius = cp['radius_meters'] as double? ?? 50.0;
+
+      if (cpLat != null && cpLng != null) {
+        final dist = _haversineDistance(
+          position.latitude,
+          position.longitude,
+          cpLat,
+          cpLng,
+        );
+
+        if (dist <= cpRadius) {
+          if (dist < minInsideDist) {
+            minInsideDist = dist;
+            nearestInside = cp;
+          }
+        } else if (dist <= cpRadius * 1.3) {
+          if (dist < minNearDist) {
+            minNearDist = dist;
+            nearestNear = cp;
+          }
+        } else {
+          if (dist < minOutsideDist) {
+            minOutsideDist = dist;
+            nearestOutside = cp;
+          }
+        }
+      }
+    }
+
+    if (nearestInside != null) {
+      activeCheckpoint = nearestInside;
+      status = 'inside';
+    } else if (nearestNear != null) {
+      activeCheckpoint = nearestNear;
+      status = 'near';
+    } else if (nearestOutside != null) {
+      activeCheckpoint = nearestOutside;
+      status = 'outside';
+    }
+
+    if (status != _lastGeofenceState) {
+      final oldState = _lastGeofenceState;
+      _lastGeofenceState = status;
+
+      if (activeCheckpoint != null) {
+        final name = activeCheckpoint['name'] ?? 'Checkpoint';
+        if (status == 'inside' && oldState != 'inside') {
+          NotificationService.showLocalNotification(
+            id: 999,
+            title: "Inside Geofence Area",
+            body: "You have entered the $name geofence. Don't forget to clock in!",
+          );
+        } else if (status == 'near' && oldState == 'outside') {
+          NotificationService.showLocalNotification(
+            id: 998,
+            title: "Approaching Checkpoint",
+            body: "You are getting close to $name. Prepare to record attendance.",
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final punchState = ref.watch(punchStateProvider);
@@ -188,9 +348,13 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       );
     }
 
-    return Container(
-      color: Theme.of(context).colorScheme.surface,
-      child: Column(
+    final queueAsync = ref.watch(offlineQueueProvider);
+
+    return Stack(
+      children: [
+        Container(
+          color: Theme.of(context).colorScheme.surface,
+          child: Column(
         children: [
           // Header Widget (Moved to the very top, out of map)
           deviceConfig.when(
@@ -743,6 +907,286 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
           ), // Expanded
         ], // Column children
       ), // Column
+    ),
+        queueAsync.when(
+          data: (queue) {
+            if (queue.isEmpty) return const SizedBox.shrink();
+            return _OfflineQueueDrawer(queue: queue);
+          },
+          loading: () => const SizedBox.shrink(),
+          error: (_, __) => const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Offline Sync Drawer ──────────────────────────────────────────────────────
+// Glassmorphic slide-up bottom drawer containing the detailed offline log queue.
+class _OfflineQueueDrawer extends ConsumerWidget {
+  final List<OfflinePunche> queue;
+  const _OfflineQueueDrawer({required this.queue});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final syncState = ref.watch(syncStateProvider);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.12,
+      minChildSize: 0.12,
+      maxChildSize: 0.85,
+      builder: (context, scrollController) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(28),
+            topRight: Radius.circular(28),
+          ),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xE60F172A)
+                    : const Color(0xE6FFFFFF),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(28),
+                  topRight: Radius.circular(28),
+                ),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.08)
+                      : Colors.black.withOpacity(0.08),
+                  width: 1.5,
+                ),
+              ),
+              child: CustomScrollView(
+                controller: scrollController,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        Container(
+                          width: 48,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withOpacity(0.2)
+                                : Colors.black.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.errorRed.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: AppTheme.errorRed.withOpacity(0.4)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.cloud_off_rounded, color: AppTheme.errorRed, size: 14),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '${queue.length} Pending Sync',
+                                      style: const TextStyle(
+                                        color: AppTheme.errorRed,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Spacer(),
+                              if (syncState.status == SyncStatus.syncing)
+                                const SizedBox(
+                                  width: 24, height: 24,
+                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF009CA6)),
+                                )
+                              else
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF009CA6),
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                  ),
+                                  onPressed: () async {
+                                    await HapticFeedback.mediumImpact();
+                                    await ref.read(networkSyncProvider).syncOfflinePunches();
+                                  },
+                                  icon: const Icon(Icons.sync_rounded, size: 16),
+                                  label: const Text('SYNC NOW', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                    ),
+                  ),
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final punch = queue[index];
+                        final isOut = punch.punchType.toLowerCase().contains('out');
+                        final punchColor = isOut ? Colors.red.shade600 : AppTheme.primaryCyan;
+                        
+                        IconData statusIcon = Icons.cloud_queue_rounded;
+                        Color statusColor = Colors.blue;
+                        String statusLabel = 'Awaiting Sync';
+
+                        if (punch.syncStatus == 'failed') {
+                          statusIcon = Icons.warning_amber_rounded;
+                          statusColor = Colors.orange;
+                          statusLabel = 'Sync Failed (Will Retry)';
+                        } else if (punch.syncStatus == 'failed_permanent') {
+                          statusIcon = Icons.error_outline_rounded;
+                          statusColor = Colors.red;
+                          statusLabel = 'Failed Permanent';
+                        } else if (punch.syncStatus == 'expired_pending_review') {
+                          statusIcon = Icons.lock_clock;
+                          statusColor = Colors.amber;
+                          statusLabel = 'Pending Review (> 24h)';
+                        }
+
+                        String formattedTime = punch.timestamp;
+                        try {
+                          final parsed = DateTime.parse(punch.timestamp);
+                          formattedTime = "${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')} "
+                              "${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}:${parsed.second.toString().padLeft(2, '0')}";
+                        } catch (_) {}
+
+                        return Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isDark 
+                                ? Colors.white.withOpacity(0.03) 
+                                : Colors.black.withOpacity(0.02),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isDark 
+                                  ? Colors.white.withOpacity(0.06) 
+                                  : Colors.black.withOpacity(0.05),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: punchColor,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    punch.punchType.toUpperCase(),
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white : Colors.black,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 14,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  if (punch.retryCount > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        'Retries: ${punch.retryCount}',
+                                        style: TextStyle(color: Colors.grey.shade400, fontSize: 10),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Icon(Icons.access_time_rounded, size: 14, color: Colors.grey.shade500),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    formattedTime,
+                                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(Icons.location_on_rounded, size: 14, color: Colors.grey.shade500),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${punch.latitude.toStringAsFixed(5)}, ${punch.longitude.toStringAsFixed(5)}',
+                                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                              if (punch.errorMessage != null && punch.errorMessage!.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: statusColor.withOpacity(0.2)),
+                                  ),
+                                  child: Text(
+                                    punch.errorMessage!,
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontSize: 11,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Icon(statusIcon, color: statusColor, size: 13),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    statusLabel,
+                                    style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      childCount: queue.length,
+                    ),
+                  ),
+                  SliverPadding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 20)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

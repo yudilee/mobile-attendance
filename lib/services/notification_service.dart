@@ -128,4 +128,39 @@ class NotificationService {
     // final type = message.data['type'];
     // if (type == 'clock_in_reminder') { ... }
   }
+
+  /// Expose a public static helper to show a local notification instantly.
+  static Future<void> showLocalNotification({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    try {
+      final androidDetails = AndroidNotificationDetails(
+        'attendance_channel',
+        'Attendance Notifications',
+        channelDescription: 'Notifications from the attendance system',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+      );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+      await _localNotifications.show(
+        id,
+        title,
+        body,
+        details,
+        payload: payload,
+      );
+    } catch (e) {
+      _logger.e('Failed to show local notification: $e');
+    }
+  }
 }

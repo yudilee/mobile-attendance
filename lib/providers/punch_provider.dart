@@ -468,3 +468,13 @@ final pendingPunchCountProvider = FutureProvider<int>((ref) async {
   final offlineSync = ref.watch(offlineSyncServiceProvider);
   return offlineSync.getPendingCount();
 });
+
+// Stream of offline punches in queue (not successfully synced yet)
+final offlineQueueProvider = StreamProvider<List<OfflinePunche>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return (db.select(db.offlinePunches)
+        ..where((p) => p.syncStatus.isIn(['pending', 'failed', 'failed_permanent', 'expired_pending_review']))
+        ..orderBy([(p) => OrderingTerm.desc(p.createdAt)]))
+      .watch();
+});
+
