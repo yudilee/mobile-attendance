@@ -115,8 +115,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         setState(() { _registering = true; _regStatus = ''; _regMessage = ''; });
         
         final data = jsonDecode(result) as Map<String, dynamic>;
-        final url = data['url'] as String;
+        var url = data['url'] as String;
         final token = data['token'] as String;
+        
+        // Intelligent Localhost Fallback:
+        // If the scanned QR url points to localhost but the user has already entered
+        // a custom host in their Server URL controller, we swap localhost/127.0.0.1
+        // with the user's custom host so onboarding works seamlessly over LAN/Emulator!
+        if (url.contains('localhost') || url.contains('127.0.0.1')) {
+          final customUrl = _serverUrlCtrl.text.trim();
+          if (customUrl.isNotEmpty && customUrl.startsWith('http')) {
+            try {
+              final parsedCustom = Uri.parse(customUrl);
+              final parsedQr = Uri.parse(url);
+              url = url.replaceAll(
+                '${parsedQr.host}:${parsedQr.port}',
+                '${parsedCustom.host}:${parsedCustom.port}',
+              ).replaceAll(parsedQr.host, parsedCustom.host);
+            } catch (_) {}
+          }
+        }
         
         await AppSettings.setServerUrl(url);
         _serverUrlCtrl.text = url;
