@@ -272,7 +272,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               // ═══════════════════════════════════════════════════════════════
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: AppTheme.glassDecoration().copyWith(
+                decoration: AppTheme.glassDecoration(context: context).copyWith(
                   color: AppTheme.successGreen.withOpacity(0.05),
                   border: Border.all(color: AppTheme.successGreen.withOpacity(0.3)),
                 ),
@@ -866,7 +866,7 @@ class _Card extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.glassDecoration(),
+      decoration: AppTheme.glassDecoration(context: context),
       child: Column(children: children),
     );
   }
@@ -954,7 +954,7 @@ class _RegistrationResultCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
         color: tintColor.withOpacity(0.08),
         border: Border.all(color: tintColor.withOpacity(0.3), width: 1.5),
       ),

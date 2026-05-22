@@ -175,43 +175,9 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       );
     }
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      appBar: AppBar(
-        title: const Text('Punch'),
-        actions: [
-          // Pending punch count badge
-          ref.watch(pendingPunchCountProvider).when(
-            data: (count) => count > 0
-              ? Stack(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.cloud_off),
-                      tooltip: '$count punch(es) pending sync',
-                      onPressed: () => ref.read(networkSyncProvider).syncOfflinePunches(),
-                    ),
-                    Positioned(
-                      right: 6, top: 6,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                        child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
-                )
-              : const SizedBox.shrink(),
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh Status',
-            onPressed: () => ref.invalidate(deviceConfigProvider),
-          ),
-        ],
-      ),
-      body: Column(
+    return Container(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
         children: [
           // Header Widget (Moved to the very top, out of map)
           deviceConfig.when(
@@ -222,12 +188,16 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                   : null;
               return _HeaderWidget(
                 employeeId: _employeeId.isEmpty ? 'Not configured' : _employeeId,
+                employeeName: config['employee_name'] as String?,
                 isConfigured: _isConfigured,
                 onSetupTap: _openSettings,
+                onRefresh: () => ref.invalidate(deviceConfigProvider),
                 branches: branchesList?.map((b) => (b as Map<String, dynamic>)['name'] as String).toList(),
                 branchName: firstBranch?['name'] as String? ?? config['branch_name'] as String?,
                 deviceCount: config['device_count'] as int?,
                 maxDevices: config['max_devices'] as int?,
+                lastAuthTime: punchState.lastBiometricAuthTime,
+                sessionSeconds: punchState.biometricSessionSeconds,
               );
             },
             loading: () => const SizedBox.shrink(),
@@ -245,9 +215,10 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                   ? branchesList[0] as Map<String, dynamic>
                   : null;
               
-              double? branchLat = firstBranch?['lat'] as double? ?? config['lat'] as double?;
-              double? branchLng = firstBranch?['lng'] as double? ?? config['lng'] as double?;
-              double? radius = firstBranch?['radius'] as double? ?? config['radius'] as double?;
+              double? branchLat = double.tryParse((firstBranch?['latitude'] ?? config['latitude'])?.toString() ?? '');
+              double? branchLng = double.tryParse((firstBranch?['longitude'] ?? config['longitude'])?.toString() ?? '');
+              double? radius = double.tryParse((firstBranch?['radius_meters'] ?? config['radius_meters'])?.toString() ?? '');
+
               
               return Container(
                 height: 350,
@@ -265,6 +236,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                   child: Stack(
                     children: [
                       FlutterMap(
+                        mapController: _mapController,
                         options: MapOptions(
                           initialCenter: branchLat != null && branchLng != null
                               ? LatLng(branchLat, branchLng)
@@ -277,24 +249,25 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         children: [
                           TileLayer(
                             urlTemplate: Theme.of(context).brightness == Brightness.dark
-                                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-                                : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-                            subdomains: const ['a', 'b', 'c'],
-                            userAgentPackageName: 'com.example.app',
+                                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                                : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                            subdomains: const ['a', 'b', 'c', 'd'],
                           ),
-                          if (branchLat != null && branchLng != null)
-                            CircleLayer(
-                              circles: [
-                                CircleMarker(
-                                  point: LatLng(branchLat, branchLng),
-                                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                                  borderStrokeWidth: 1,
-                                  borderColor: Theme.of(context).colorScheme.primary.withOpacity(0.5),
-                                  useRadiusInMeter: true,
-                                  radius: radius ?? 50.0,
-                                ),
-                              ],
-                            ),
+                          CircleLayer(
+                            circles: (branchesList ?? (config['latitude'] != null ? [{'latitude': config['latitude'], 'longitude': config['longitude'], 'radius_meters': config['radius_meters']}] : []))
+                                .map((b) => CircleMarker(
+                                      point: LatLng(
+                                        b is Map ? (double.tryParse(b['latitude']?.toString() ?? '') ?? branchLat ?? 0.0) : branchLat ?? 0.0,
+                                        b is Map ? (double.tryParse(b['longitude']?.toString() ?? '') ?? branchLng ?? 0.0) : branchLng ?? 0.0,
+                                      ),
+                                      color: AppTheme.secondaryViolet.withOpacity(0.2),
+                                      borderStrokeWidth: 2,
+                                      borderColor: AppTheme.secondaryViolet.withOpacity(0.8),
+                                      useRadiusInMeter: true,
+                                      radius: b is Map ? (double.tryParse(b['radius_meters']?.toString() ?? '') ?? radius ?? 50.0) : radius ?? 50.0,
+                                    ))
+                                .toList(),
+                          ),
                           if (_currentPosition != null)
                             MarkerLayer(
                               markers: [
@@ -304,11 +277,11 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                                   height: 40,
                                   child: Container(
                                     decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.primary,
+                                      color: Colors.blueAccent,
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white.withOpacity(0.8), width: 2),
+                                      border: Border.all(color: Colors.white, width: 3),
                                       boxShadow: [
-                                        BoxShadow(color: Theme.of(context).colorScheme.primary.withOpacity(0.5), blurRadius: 10, spreadRadius: 4),
+                                        BoxShadow(color: Colors.blueAccent.withOpacity(0.4), blurRadius: 15, spreadRadius: 6),
                                       ],
                                     ),
                                   ),
@@ -370,24 +343,84 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                             Color badgeColor = Colors.grey;
                             IconData badgeIcon = Icons.location_searching;
 
-                            if (_currentPosition != null && branchLat != null && branchLng != null) {
-                              final distanceM = _haversineDistance(
-                                _currentPosition!.latitude, _currentPosition!.longitude,
-                                branchLat, branchLng,
-                              );
-                              final r = radius ?? 50.0;
-                              if (distanceM <= r) {
-                                badgeText = '✓ Inside Geofence (${distanceM.toStringAsFixed(0)}m from center)';
-                                badgeColor = AppTheme.successGreen;
-                                badgeIcon = Icons.check_circle_outline;
-                              } else if (distanceM <= r * 1.3) {
-                                badgeText = '⚠ Near boundary (${distanceM.toStringAsFixed(0)}m / ${r.toStringAsFixed(0)}m)';
-                                badgeColor = Colors.orange;
-                                badgeIcon = Icons.warning_amber_outlined;
-                              } else {
-                                badgeText = '✗ Outside Geofence (${distanceM.toStringAsFixed(0)}m away)';
-                                badgeColor = AppTheme.errorRed;
-                                badgeIcon = Icons.location_off_outlined;
+                            if (_currentPosition != null) {
+                              final List<dynamic> checkpoints = branchesList ?? (config['latitude'] != null ? [config] : []);
+                              Map<String, dynamic>? activeCheckpoint;
+                              double activeDistance = double.infinity;
+                              String status = 'outside'; // 'inside', 'near', 'outside'
+
+                              Map<String, dynamic>? nearestInside;
+                              double minInsideDist = double.infinity;
+
+                              Map<String, dynamic>? nearestNear;
+                              double minNearDist = double.infinity;
+
+                              Map<String, dynamic>? nearestOutside;
+                              double minOutsideDist = double.infinity;
+
+                              for (final cp in checkpoints) {
+                                if (cp is Map) {
+                                  final cpLat = double.tryParse((cp['latitude'] ?? cp['lat'] ?? branchLat)?.toString() ?? '');
+                                  final cpLng = double.tryParse((cp['longitude'] ?? cp['lon'] ?? branchLng)?.toString() ?? '');
+                                  final cpRadius = double.tryParse((cp['radius_meters'] ?? cp['radius'] ?? radius)?.toString() ?? '') ?? 50.0;
+
+                                  if (cpLat != null && cpLng != null) {
+                                    final dist = _haversineDistance(
+                                      _currentPosition!.latitude,
+                                      _currentPosition!.longitude,
+                                      cpLat,
+                                      cpLng,
+                                    );
+
+                                    if (dist <= cpRadius) {
+                                      if (dist < minInsideDist) {
+                                        minInsideDist = dist;
+                                        nearestInside = Map<String, dynamic>.from(cp);
+                                      }
+                                    } else if (dist <= cpRadius * 1.3) {
+                                      if (dist < minNearDist) {
+                                        minNearDist = dist;
+                                        nearestNear = Map<String, dynamic>.from(cp);
+                                      }
+                                    } else {
+                                      if (dist < minOutsideDist) {
+                                        minOutsideDist = dist;
+                                        nearestOutside = Map<String, dynamic>.from(cp);
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+
+                              if (nearestInside != null) {
+                                activeCheckpoint = nearestInside;
+                                activeDistance = minInsideDist;
+                                status = 'inside';
+                              } else if (nearestNear != null) {
+                                activeCheckpoint = nearestNear;
+                                activeDistance = minNearDist;
+                                status = 'near';
+                              } else if (nearestOutside != null) {
+                                activeCheckpoint = nearestOutside;
+                                activeDistance = minOutsideDist;
+                                status = 'outside';
+                              }
+
+                              if (activeCheckpoint != null) {
+                                final name = activeCheckpoint['name'] ?? activeCheckpoint['branch_name'] ?? 'Checkpoint';
+                                if (status == 'inside') {
+                                  badgeText = '✓ Inside $name (${activeDistance.toStringAsFixed(0)}m)';
+                                  badgeColor = AppTheme.successGreen;
+                                  badgeIcon = Icons.check_circle_outline;
+                                } else if (status == 'near') {
+                                  badgeText = '⚠ Near $name (${activeDistance.toStringAsFixed(0)}m)';
+                                  badgeColor = Colors.orange;
+                                  badgeIcon = Icons.warning_amber_outlined;
+                                } else {
+                                  badgeText = '✗ Outside Geofence (Nearest: $name, ${activeDistance.toStringAsFixed(0)}m away)';
+                                  badgeColor = AppTheme.errorRed;
+                                  badgeIcon = Icons.location_off_outlined;
+                                }
                               }
                             }
 
@@ -466,12 +499,14 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
           ),
           
           Expanded(
-            child: Container(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Spacer(),
+            child: SafeArea(
+              bottom: true,
+              child: Container(
+                padding: const EdgeInsets.all(24.0),
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    const SizedBox(height: 16),
 
             // Config / Branch Status logic
             if (!_isConfigured)
@@ -572,34 +607,52 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         loading: () => const CircularProgressIndicator(color: Color(0xFF009CA6)),
                         error: (_, __) => const SizedBox.shrink(),
                       ),
-                      const SizedBox(height: 16),
-                      // GPS and Sync Status
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.circle, size: 8, color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 8),
-                          const Text('GPS Signal Strong', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.cloud_off, size: 14, color: Colors.grey.shade500),
-                          const SizedBox(width: 8),
-                          Text('Offline Mode Active (Pending Sync)', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-                        ],
-                      ),
+                      Builder(builder: (context) {
+                        String gpsText = 'Locating GPS...';
+                        Color gpsColor = Colors.grey;
+                        if (_currentPosition != null) {
+                          if (_currentPosition!.accuracy < 20) {
+                            gpsText = 'GPS Signal Strong (±${_currentPosition!.accuracy.toStringAsFixed(0)}m)';
+                            gpsColor = AppTheme.successGreen;
+                          } else if (_currentPosition!.accuracy < 50) {
+                            gpsText = 'GPS Signal Moderate (±${_currentPosition!.accuracy.toStringAsFixed(0)}m)';
+                            gpsColor = Colors.orange;
+                          } else {
+                            gpsText = 'GPS Signal Weak (±${_currentPosition!.accuracy.toStringAsFixed(0)}m)';
+                            gpsColor = AppTheme.errorRed;
+                          }
+                        }
+                        return Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.circle, size: 8, color: gpsColor),
+                                const SizedBox(width: 8),
+                                Text(gpsText, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13, fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.cloud_off, size: 14, color: Colors.grey.shade500),
+                                const SizedBox(width: 8),
+                                Text('Offline Mode Active (Pending Sync)', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                              ],
+                            ),
+                          ],
+                        );
+                      }),
                       const SizedBox(height: 24),
-                      Text('\u00A9 ${DateTime.now().year} IT Dept HRM Group', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
-                      const SizedBox(height: 32),
+                      Text('\u00A9 ${DateTime.now().year} IT Dept HRM Group', style: TextStyle(color: Colors.grey.shade600, fontSize: 11), textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
                     ],
                   );
                 },
               ),
 
-            const Spacer(),
+            const SizedBox(height: 16),
             _StatusFeedback(
               state: punchState,
               onDismiss: () => ref.read(punchStateProvider.notifier).reset(),
@@ -611,6 +664,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
           ],
         ),
       ),
+    ), // SafeArea
           ), // Expanded
         ], // Column children
       ), // Column
@@ -684,23 +738,118 @@ class _SyncBar extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+class BiometricPadlock extends StatefulWidget {
+  final DateTime? lastAuthTime;
+  final int sessionSeconds;
+
+  const BiometricPadlock({
+    super.key,
+    required this.lastAuthTime,
+    required this.sessionSeconds,
+  });
+
+  @override
+  State<BiometricPadlock> createState() => _BiometricPadlockState();
+}
+
+class _BiometricPadlockState extends State<BiometricPadlock> with SingleTickerProviderStateMixin {
+  Timer? _timer;
+  late AnimationController _pulseController;
+  bool _isActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat(reverse: true);
+    
+    _checkActive();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _checkActive();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant BiometricPadlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _checkActive();
+  }
+
+  void _checkActive() {
+    if (widget.lastAuthTime == null || widget.sessionSeconds <= 0) {
+      if (_isActive) {
+        setState(() {
+          _isActive = false;
+        });
+      }
+      return;
+    }
+    final elapsed = DateTime.now().difference(widget.lastAuthTime!).inSeconds;
+    final active = elapsed < widget.sessionSeconds;
+    if (active != _isActive) {
+      setState(() {
+        _isActive = active;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isActive) {
+      return Icon(
+        Icons.lock_outline,
+        size: 18,
+        color: Colors.grey.shade500,
+      );
+    }
+
+    return ScaleTransition(
+      scale: Tween<double>(begin: 0.9, end: 1.1).animate(
+        CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+      ),
+      child: const Icon(
+        Icons.lock_open_rounded,
+        size: 18,
+        color: AppTheme.successGreen,
+      ),
+    );
+  }
+}
+
 class _HeaderWidget extends StatelessWidget {
   final String employeeId;
+  final String? employeeName;
   final bool isConfigured;
   final VoidCallback onSetupTap;
+  final VoidCallback onRefresh;
   final List<String>? branches;
   final String? branchName;
   final int? deviceCount;
   final int? maxDevices;
+  final DateTime? lastAuthTime;
+  final int sessionSeconds;
 
   const _HeaderWidget({
     required this.employeeId,
+    this.employeeName,
     required this.isConfigured,
     required this.onSetupTap,
+    required this.onRefresh,
     this.branches,
     this.branchName,
     this.deviceCount,
     this.maxDevices,
+    this.lastAuthTime,
+    this.sessionSeconds = 0,
   });
 
   String get _branchDisplay {
@@ -731,22 +880,44 @@ class _HeaderWidget extends StatelessWidget {
               ),
               color: Theme.of(context).colorScheme.surface,
             ),
-            child: isConfigured ? null : const Icon(Icons.person_off, color: Colors.white, size: 24),
+            child: isConfigured ? null : Icon(Icons.person_off, color: Theme.of(context).colorScheme.onSurface, size: 24),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  isConfigured ? employeeId : 'Setup Required',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                    color: Colors.white,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        isConfigured ? (employeeName ?? employeeId) : 'Setup Required',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    if (isConfigured) ...[
+                      const SizedBox(width: 8),
+                      BiometricPadlock(
+                        lastAuthTime: lastAuthTime,
+                        sessionSeconds: sessionSeconds,
+                      ),
+                    ],
+                  ],
                 ),
+                if (isConfigured && employeeName != null && employeeName!.isNotEmpty)
+                  Text(
+                    employeeId,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
@@ -772,7 +943,12 @@ class _HeaderWidget extends StatelessWidget {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.notifications_none, color: Colors.white),
+            icon: Icon(Icons.refresh, color: Theme.of(context).colorScheme.onSurface),
+            tooltip: 'Refresh Status',
+            onPressed: onRefresh,
+          ),
+          IconButton(
+            icon: Icon(Icons.notifications_none, color: Theme.of(context).colorScheme.onSurface),
             onPressed: () {},
           )
         ],
@@ -789,7 +965,7 @@ class _PendingAssignmentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
         color: Colors.orange.withOpacity(0.08),
         border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1.5),
       ),
@@ -825,7 +1001,7 @@ class _MaxDevicesReachedCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
         color: AppTheme.errorRed.withOpacity(0.08),
         border: Border.all(color: AppTheme.errorRed.withOpacity(0.3), width: 1.5),
       ),
@@ -878,7 +1054,7 @@ class _NotConfiguredCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: AppTheme.glassDecoration(borderRadius: 20).copyWith(
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 20).copyWith(
         color: Colors.orange.withOpacity(0.08),
         border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1.5),
       ),
@@ -1015,11 +1191,21 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
     final isOut = widget.label.toLowerCase().contains('out');
     final primary = Theme.of(context).colorScheme.primary;
     
-    // Glassmorphism styling based on button type
-    final border = isOut ? Border.all(color: Colors.transparent) : Border.all(color: primary.withOpacity(0.5), width: 1.5);
-    final bgColor = isOut ? Colors.white.withOpacity(0.05) : primary.withOpacity(0.15);
-    final shadow = isOut ? const BoxShadow(color: Colors.transparent) : BoxShadow(
-      color: primary.withOpacity(0.2),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    final border = isOut
+        ? Border.all(color: isDark ? Colors.red.withOpacity(0.5) : Colors.red.shade300, width: 1.5)
+        : Border.all(color: isDark ? primary.withOpacity(0.5) : primary.withOpacity(0.5), width: 1.5);
+        
+    final bgColor = isOut 
+        ? (isDark ? Colors.red.withOpacity(0.1) : Colors.red.shade50)
+        : (isDark ? primary.withOpacity(0.15) : primary.withOpacity(0.15));
+        
+    final textColor = isDark ? Colors.white : (isOut ? Colors.red.shade700 : primary);
+    final iconColor = isDark ? (isOut ? Colors.red.shade400 : primary) : (isOut ? Colors.red.shade700 : primary);
+    
+    final shadow = BoxShadow(
+      color: isOut ? Colors.red.withOpacity(0.1) : primary.withOpacity(0.2),
       blurRadius: 16,
       offset: const Offset(0, 4),
     );
@@ -1059,21 +1245,21 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
                   Container(
                     padding: const EdgeInsets.all(8),
                     child: widget.loading
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 24, height: 24,
                             child: CircularProgressIndicator(
-                              color: Colors.white,
+                              color: iconColor,
                               strokeWidth: 2,
                             ),
                           )
-                        : Icon(widget.icon, color: isOut ? Colors.red.shade400 : primary, size: 24),
+                        : Icon(widget.icon, color: iconColor, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       widget.loading ? 'Processing...' : widget.label,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: textColor,
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.5,
@@ -1081,7 +1267,7 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
                     ),
                   ),
                   if (!widget.loading)
-                    const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 20),
+                    Icon(Icons.arrow_forward_ios, color: textColor.withOpacity(0.5), size: 20),
                 ],
               ),
             ),
@@ -1195,7 +1381,7 @@ class _StatusFeedbackState extends State<_StatusFeedback> {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
         color: tintColor.withOpacity(0.08),
         border: Border.all(color: tintColor.withOpacity(0.3), width: 1.5),
       ),
@@ -1290,7 +1476,7 @@ class _DeviceCompromisedBanner extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
-      decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
         color: AppTheme.errorRed.withOpacity(0.08),
         border: Border.all(color: AppTheme.errorRed.withOpacity(0.3), width: 1.5),
       ),

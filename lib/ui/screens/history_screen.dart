@@ -73,60 +73,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           
           const SizedBox(height: 16),
           
-          // Summary cards
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: AppTheme.glassDecoration(context: context, borderRadius: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.timer, color: AppTheme.primaryCyan, size: 24),
-                        const SizedBox(height: 12),
-                        const Text('Total Work Hours', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
-                        const SizedBox(height: 4),
-                        Text('8h 45m', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: AppTheme.glassDecoration(context: context, borderRadius: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.check_circle, color: AppTheme.successGreen, size: 24),
-                        const SizedBox(height: 12),
-                        const Text('Status', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
-                        const SizedBox(height: 4),
-                        Text('Clocked In', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // History list with pull-to-refresh
+          // Summary and History list wrapped in historyStream.when
           Expanded(
             child: historyStream.when(
               data: (history) {
-                if (history.isEmpty) {
-                  return Center(
-                    child: Text('No punch history on this device.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
-                  );
-                }
-                
                 // Filter logic
                 final now = DateTime.now();
                 final today = DateTime(now.year, now.month, now.day);
@@ -141,51 +91,122 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   return itemDate.isBefore(startOfWeek);
                 }).toList();
 
-                if (filtered.isEmpty) {
-                  return Center(
-                    child: Text('No $_filter punches.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
-                  );
+                // Compute Summary
+                String totalHours = '0h 0m';
+                String status = 'No Punches';
+                Color statusColor = Colors.grey;
+                IconData statusIcon = Icons.help_outline;
+
+                if (filtered.isNotEmpty) {
+                  final sorted = filtered.toList()..sort((a,b) => DateTime.parse(a.timestamp).compareTo(DateTime.parse(b.timestamp)));
+                  final firstPunch = sorted.first;
+                  final lastPunch = sorted.last;
+                  
+                  bool isCurrentlyIn = lastPunch.punchType.toLowerCase().contains('in');
+                  if (isCurrentlyIn) {
+                    status = 'Clocked In';
+                    statusColor = AppTheme.successGreen;
+                    statusIcon = Icons.check_circle;
+                    
+                    final inTime = DateTime.parse(firstPunch.timestamp);
+                    final diff = DateTime.now().difference(inTime);
+                    totalHours = '${diff.inHours}h ${diff.inMinutes % 60}m';
+                  } else {
+                    status = 'Clocked Out';
+                    statusColor = AppTheme.secondaryViolet;
+                    statusIcon = Icons.exit_to_app;
+                    
+                    final inTime = DateTime.parse(firstPunch.timestamp);
+                    final outTime = DateTime.parse(lastPunch.timestamp);
+                    if (outTime.isAfter(inTime)) {
+                      final diff = outTime.difference(inTime);
+                      totalHours = '${diff.inHours}h ${diff.inMinutes % 60}m';
+                    }
+                  }
                 }
 
-                // Group by date
-                final grouped = _groupByDate(filtered);
-
-                return RefreshIndicator(
-                  onRefresh: () async {
-                    // 1. Fetch server-authoritative history
-                    await ref.read(networkSyncProvider).syncPunchHistory();
-                    // 2. Refresh the local stream
-                    ref.invalidate(punchHistoryProvider);
-                    await Future.delayed(const Duration(milliseconds: 300));
-                  },
-                  child: ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    itemCount: grouped.entries.length,
-                    itemBuilder: (context, index) {
-                      final entry = grouped.entries.elementAt(index);
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                return Column(
+                  children: [
+                    // Summary cards
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Row(
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 16, bottom: 12),
-                            child: Text(
-                              entry.key,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.textMuted,
-                                letterSpacing: 0.5,
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: AppTheme.glassDecoration(context: context, borderRadius: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(Icons.timer, color: AppTheme.primaryCyan, size: 24),
+                                  const SizedBox(height: 12),
+                                  const Text('Total Work Hours', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                                  const SizedBox(height: 4),
+                                  Text(totalHours, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+                                ],
                               ),
                             ),
                           ),
-                          ...entry.value.map((punch) => _PunchHistoryCard(punch: punch)),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: AppTheme.glassDecoration(context: context, borderRadius: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(statusIcon, color: statusColor, size: 24),
+                                  const SizedBox(height: 12),
+                                  const Text('Status', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                                  const SizedBox(height: 4),
+                                  Text(status, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
-                      );
-                    },
-                  ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    
+                    // List
+                    Expanded(
+                      child: filtered.isEmpty 
+                          ? Center(child: Text('No $_filter punches.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))))
+                          : RefreshIndicator(
+                              onRefresh: () async {
+                                await ref.read(networkSyncProvider).syncPunchHistory();
+                                ref.invalidate(punchHistoryProvider);
+                                await Future.delayed(const Duration(milliseconds: 300));
+                              },
+                              child: ListView.builder(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                                itemCount: _groupByDate(filtered).entries.length,
+                                itemBuilder: (context, index) {
+                                  final entry = _groupByDate(filtered).entries.elementAt(index);
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 16, bottom: 12),
+                                        child: Text(
+                                          entry.key,
+                                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textMuted, letterSpacing: 0.5),
+                                        ),
+                                      ),
+                                      ...entry.value.map((punch) => _PunchHistoryCard(punch: punch)),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                    ),
+                  ],
                 );
               },
+
               loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.primaryCyan)),
               error: (err, _) => Center(child: Text('Error loading history: $err')),
             ),

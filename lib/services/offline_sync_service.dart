@@ -140,12 +140,25 @@ class OfflineSyncService {
   String _encodeBranches(List<dynamic> branches) {
     final list = branches.map((b) {
       final m = b as Map<String, dynamic>;
+      final checkpoints = m['checkpoints'] as List<dynamic>? ?? [];
       return {
         'id': m['id'],
         'name': m['name'],
         'latitude': m['latitude'],
         'longitude': m['longitude'],
         'radius_meters': m['radius_meters'],
+        'checkpoints': checkpoints.map((cp) {
+          final c = cp as Map<String, dynamic>;
+          return {
+            'id': c['id'],
+            'branch_id': c['branch_id'],
+            'name': c['name'],
+            'latitude': c['latitude'],
+            'longitude': c['longitude'],
+            'radius_meters': c['radius_meters'],
+            'is_active': c['is_active'],
+          };
+        }).toList(),
       };
     }).toList();
     return jsonEncode(list);

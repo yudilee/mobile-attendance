@@ -220,7 +220,7 @@ class _SyncStatusCard extends StatelessWidget {
       onTap: syncState.status == SyncStatus.syncing ? null : onSyncTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: AppTheme.glassDecoration(borderRadius: 16).copyWith(
+        decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
           color: borderColor.withOpacity(0.08),
           border: Border.all(color: borderColor.withOpacity(0.3)),
         ),
@@ -283,7 +283,7 @@ class _TodaySummaryCard extends ConsumerWidget {
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
         return Container(
-          decoration: AppTheme.glassDecoration(),
+          decoration: AppTheme.glassDecoration(context: context),
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -426,7 +426,7 @@ class _WeeklyOverviewCard extends ConsumerWidget {
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
         return Container(
-          decoration: AppTheme.glassDecoration(),
+          decoration: AppTheme.glassDecoration(context: context),
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -590,7 +590,7 @@ class _MonthlyStatsCard extends ConsumerWidget {
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
         return Container(
-          decoration: AppTheme.glassDecoration(),
+          decoration: AppTheme.glassDecoration(context: context),
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -845,7 +845,7 @@ class _SecurityStatusCard extends ConsumerWidget {
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: AppTheme.glassDecoration().copyWith(
+            decoration: AppTheme.glassDecoration(context: context).copyWith(
               color: isSecure ? AppTheme.successGreen.withOpacity(0.05) : AppTheme.errorRed.withOpacity(0.05),
               border: Border.all(color: isSecure ? AppTheme.successGreen.withOpacity(0.3) : AppTheme.errorRed.withOpacity(0.3)),
             ),

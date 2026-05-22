@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class QRScanScreen extends StatefulWidget {
@@ -38,6 +39,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
 
     for (final barcode in capture.barcodes) {
       if (barcode.rawValue == widget.expectedQrData) {
+        HapticFeedback.heavyImpact();
         setState(() => _matched = true);
         widget.onSuccess();
         return;

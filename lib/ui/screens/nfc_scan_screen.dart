@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 
 class NfcScanScreen extends StatefulWidget {
@@ -33,12 +32,14 @@ class _NfcScanScreenState extends State<NfcScanScreen> {
 
       final data = _extractNfcData(tag);
       if (data == widget.expectedTagData) {
+        HapticFeedback.heavyImpact();
         setState(() {
           _matched = true;
           _statusText = 'NFC Matched!';
         });
         widget.onSuccess();
       } else {
+        HapticFeedback.vibrate();
         setState(() {
           _statusText = 'Tag mismatch. Try again...';
         });
