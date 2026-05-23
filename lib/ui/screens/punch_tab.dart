@@ -49,6 +49,10 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   StreamSubscription<Position>? _positionStream;
   final MapController _mapController = MapController();
   String _lastGeofenceState = 'unknown';
+  String? _locationError;
+  // Track whether the map has been centered at least once so we stop
+  // forcefully re-centering on every GPS update (fixes "kept locating" bug).
+  bool _mapCenteredOnce = false;
 
   @override
   void initState() {
@@ -62,6 +66,14 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   }
 
   void _startLocationUpdates() {
+    Geolocator.isLocationServiceEnabled().then((enabled) {
+      if (!enabled && mounted) {
+        setState(() {
+          _locationError = "Location Services (GPS) Disabled. Enable GPS.";
+        });
+      }
+    });
+
     LocationSettings locationSettings;
     if (Platform.isAndroid) {
       locationSettings = AndroidSettings(
@@ -95,15 +107,26 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       if (mounted) {
         setState(() {
           _currentPosition = position;
+          _locationError = null; // Clear error on successful GPS acquisition
         });
 
         // Dynamic background geofence transition reminders
         _processGeofenceNotifications(position);
 
-        // Try centering map on current location if the controller is ready
-        try {
-          _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
-        } catch (_) {}
+        // Only auto-center the map on the very first GPS fix.
+        // After that the user is free to pan without being interrupted.
+        if (!_mapCenteredOnce) {
+          _mapCenteredOnce = true;
+          try {
+            _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
+          } catch (_) {}
+        }
+      }
+    }, onError: (error) {
+      if (mounted) {
+        setState(() {
+          _locationError = "GPS Error: $error";
+        });
       }
     });
   }
@@ -126,10 +149,26 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
   /// Request location permission upfront so Android shows the dialog
   /// immediately on first launch rather than silently failing later.
   Future<void> _requestPermissionsOnStartup() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _locationError = "GPS/Location Services Disabled. Enable in Settings.";
+      });
+    }
+
     LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          _locationError = "Location permission denied.";
+        });
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      setState(() {
+        _locationError = "Location permission permanently denied. Enable in Settings.";
+      });
     }
   }
 
@@ -298,6 +337,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       final cpLat = cp['latitude'] as double?;
       final cpLng = cp['longitude'] as double?;
       final cpRadius = cp['radius_meters'] as double? ?? 50.0;
+      final isPolygon = (cp['geofence_type'] as String? ?? 'circle') == 'polygon';
 
       if (cpLat != null && cpLng != null) {
         final dist = _haversineDistance(
@@ -314,7 +354,9 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
             minInsideDist = dist;
             nearestInside = cp;
           }
-        } else if (dist <= cpRadius * 1.3) {
+        } else if (!isPolygon && dist <= cpRadius * 1.3) {
+          // "Near" only applies to circular fences (polygon fences use
+          // point-in-polygon; there is no meaningful perimeter radius).
           if (dist < minNearDist) {
             minNearDist = dist;
             nearestNear = cp;
@@ -611,6 +653,32 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                             ),
                         ],
                       ),
+                      // Locate-me button — re-centers map on user's position on tap
+                      Positioned(
+                        bottom: 64,
+                        right: 12,
+                        child: GestureDetector(
+                          onTap: () {
+                            if (_currentPosition != null) {
+                              _mapController.move(
+                                LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                                16.0,
+                              );
+                            }
+                          },
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white.withOpacity(0.4)),
+                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)],
+                            ),
+                            child: const Icon(Icons.my_location, color: Colors.white, size: 18),
+                          ),
+                        ),
+                      ),
                       // Gradient overlay at the bottom for text
                       Positioned(
                         bottom: 0, left: 0, right: 0,
@@ -633,7 +701,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                                   Text(
                                     _currentPosition != null
                                         ? '± ${_currentPosition!.accuracy.toStringAsFixed(0)} m'
-                                        : 'Acquiring...',
+                                        : (_locationError != null ? 'Error' : 'Acquiring...'),
                                     style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
                                   ),
                                 ],
@@ -660,9 +728,9 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         child: Center(
                           child: Builder(builder: (ctx) {
                             // Calculate live distance from current position to nearest active geofence/checkpoint
-                            String badgeText = 'Locating...';
-                            Color badgeColor = Colors.grey;
-                            IconData badgeIcon = Icons.location_searching;
+                            String badgeText = _locationError ?? 'Locating...';
+                            Color badgeColor = _locationError != null ? AppTheme.errorRed : Colors.grey;
+                            IconData badgeIcon = _locationError != null ? Icons.location_off : Icons.location_searching;
 
                             if (_currentPosition != null) {
                               final List<Map<String, dynamic>> checkpoints = allGeofences;
@@ -683,6 +751,7 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                                 final cpLat = cp['latitude'] as double?;
                                 final cpLng = cp['longitude'] as double?;
                                 final cpRadius = cp['radius_meters'] as double? ?? 50.0;
+                                final isCpPolygon = (cp['geofence_type'] as String? ?? 'circle') == 'polygon';
 
                                 if (cpLat != null && cpLng != null) {
                                   final dist = _haversineDistance(
@@ -699,7 +768,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                                       minInsideDist = dist;
                                       nearestInside = cp;
                                     }
-                                  } else if (dist <= cpRadius * 1.3) {
+                                  } else if (!isCpPolygon && dist <= cpRadius * 1.3) {
+                                    // "Near" only applies to circular fences.
                                     if (dist < minNearDist) {
                                       minNearDist = dist;
                                       nearestNear = cp;
@@ -929,8 +999,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                         error: (_, __) => const SizedBox.shrink(),
                       ),
                       Builder(builder: (context) {
-                        String gpsText = 'Locating GPS...';
-                        Color gpsColor = Colors.grey;
+                        String gpsText = _locationError ?? 'Locating GPS...';
+                        Color gpsColor = _locationError != null ? AppTheme.errorRed : Colors.grey;
                         if (_currentPosition != null) {
                           if (_currentPosition!.accuracy < 20) {
                             gpsText = 'GPS Signal Strong (±${_currentPosition!.accuracy.toStringAsFixed(0)}m)';
