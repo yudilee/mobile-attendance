@@ -74,8 +74,34 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       }
     });
 
+    // ── Grab one position immediately so the UI doesn't sit on "Acquiring…" ──
+    Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    ).then((position) {
+      if (mounted && _currentPosition == null) {
+        setState(() {
+          _currentPosition = position;
+          _locationError = null;
+        });
+        if (!_mapCenteredOnce) {
+          _mapCenteredOnce = true;
+          try {
+            _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
+          } catch (_) {}
+        }
+      }
+    }).catchError((_) {}); // non-fatal — the stream below will deliver positions too
+
+    // ── Continuous stream ─────────────────────────────────────────────────────
+    _startPositionStream(withForegroundService: Platform.isAndroid);
+  }
+
+  /// Starts the GPS position stream. If [withForegroundService] is true and the
+  /// foreground-service stream fails (missing permissions on some OEM ROMs),
+  /// it automatically retries with a plain [LocationSettings] stream.
+  void _startPositionStream({bool withForegroundService = false}) {
     LocationSettings locationSettings;
-    if (Platform.isAndroid) {
+    if (withForegroundService) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5,
@@ -101,20 +127,16 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       );
     }
 
+    _positionStream?.cancel();
     _positionStream = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen((Position position) {
       if (mounted) {
         setState(() {
           _currentPosition = position;
-          _locationError = null; // Clear error on successful GPS acquisition
+          _locationError = null;
         });
-
-        // Dynamic background geofence transition reminders
         _processGeofenceNotifications(position);
-
-        // Only auto-center the map on the very first GPS fix.
-        // After that the user is free to pan without being interrupted.
         if (!_mapCenteredOnce) {
           _mapCenteredOnce = true;
           try {
@@ -124,6 +146,12 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
       }
     }, onError: (error) {
       if (mounted) {
+        // If the foreground-service variant failed, fall back to a plain stream
+        if (withForegroundService) {
+          debugPrint('[GeolocatorFallback] Foreground service stream failed ($error), retrying without it.');
+          _startPositionStream(withForegroundService: false);
+          return;
+        }
         setState(() {
           _locationError = "GPS Error: $error";
         });

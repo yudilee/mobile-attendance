@@ -7,6 +7,9 @@
     <!-- ── Location (geolocator) — foreground only ── -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Required by geolocator ForegroundNotificationConfig on Android 14+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- ── Camera (for future QR feature) ── -->
     <uses-permission android:name="android.permission.CAMERA" />
