@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -167,6 +168,65 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
 
   double _toRad(double deg) => deg * math.pi / 180.0;
 
+  List<LatLng> _parsePolygonCoordinates(dynamic rawCoords) {
+    if (rawCoords == null) return [];
+    try {
+      List<dynamic> list;
+      if (rawCoords is String) {
+        list = jsonDecode(rawCoords) as List<dynamic>;
+      } else if (rawCoords is List) {
+        list = rawCoords;
+      } else {
+        return [];
+      }
+      return list.map((pt) {
+        if (pt is List && pt.length >= 2) {
+          return LatLng(_parseDouble(pt[0]) ?? 0.0, _parseDouble(pt[1]) ?? 0.0);
+        }
+        return const LatLng(0, 0);
+      }).where((pt) => pt.latitude != 0 || pt.longitude != 0).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  bool _isPointInPolygon(double lat, double lon, List<LatLng> polygon) {
+    bool inside = false;
+    int n = polygon.length;
+    if (n < 3) return false;
+    double p1x = polygon[0].latitude;
+    double p1y = polygon[0].longitude;
+    for (int i = 0; i <= n; i++) {
+      double p2x = polygon[i % n].latitude;
+      double p2y = polygon[i % n].longitude;
+      if (lat > math.min(p1x, p2x) && lat <= math.max(p1x, p2x)) {
+        if (lon <= math.max(p1y, p2y)) {
+          if (p1x != p2x) {
+            double xints = (lat - p1x) * (p2y - p1y) / (p2x - p1x) + p1y;
+            if (p1y == p2y || lon <= xints) {
+              inside = !inside;
+            }
+          }
+        }
+      }
+      p1x = p2x;
+      p1y = p2y;
+    }
+    return inside;
+  }
+
+  bool _checkIsInside(Map<String, dynamic> cp, Position position, double dist) {
+    final geofenceType = cp['geofence_type'] as String? ?? 'circle';
+    if (geofenceType == 'polygon') {
+      final polygonCoords = _parsePolygonCoordinates(cp['polygon_coordinates']);
+      if (polygonCoords.length >= 3) {
+        return _isPointInPolygon(position.latitude, position.longitude, polygonCoords);
+      }
+    }
+    final cpRadius = cp['radius_meters'] as double? ?? 50.0;
+    return dist <= cpRadius;
+  }
+
   void _processGeofenceNotifications(Position position) {
     final deviceConfig = ref.read(deviceConfigProvider).value;
     if (deviceConfig == null) return;
@@ -182,6 +242,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
             'latitude': _parseDouble(branch['latitude']),
             'longitude': _parseDouble(branch['longitude']),
             'radius_meters': _parseDouble(branch['radius_meters']) ?? 50.0,
+            'geofence_type': branch['geofence_type'] as String? ?? 'circle',
+            'polygon_coordinates': branch['polygon_coordinates'],
             'is_checkpoint': false,
           });
           
@@ -196,6 +258,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                   'latitude': _parseDouble(cp['latitude'] ?? cp['lat']),
                   'longitude': _parseDouble(cp['longitude'] ?? cp['lon']),
                   'radius_meters': _parseDouble(cp['radius_meters'] ?? cp['radius']) ?? 50.0,
+                  'geofence_type': cp['geofence_type'] as String? ?? 'circle',
+                  'polygon_coordinates': cp['polygon_coordinates'],
                   'is_checkpoint': true,
                 });
               }
@@ -210,6 +274,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
         'latitude': _parseDouble(deviceConfig['latitude']),
         'longitude': _parseDouble(deviceConfig['longitude']),
         'radius_meters': _parseDouble(deviceConfig['radius_meters']) ?? 50.0,
+        'geofence_type': deviceConfig['geofence_type'] as String? ?? 'circle',
+        'polygon_coordinates': deviceConfig['polygon_coordinates'],
         'is_checkpoint': false,
       });
     }
@@ -241,7 +307,9 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
           cpLng,
         );
 
-        if (dist <= cpRadius) {
+        final isInside = _checkIsInside(cp, position, dist);
+
+        if (isInside) {
           if (dist < minInsideDist) {
             minInsideDist = dist;
             nearestInside = cp;
@@ -406,6 +474,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                       'latitude': _parseDouble(branch['latitude']),
                       'longitude': _parseDouble(branch['longitude']),
                       'radius_meters': _parseDouble(branch['radius_meters']) ?? 50.0,
+                      'geofence_type': branch['geofence_type'] as String? ?? 'circle',
+                      'polygon_coordinates': branch['polygon_coordinates'],
                       'is_checkpoint': false,
                     });
                     
@@ -420,6 +490,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                             'latitude': _parseDouble(cp['latitude'] ?? cp['lat']),
                             'longitude': _parseDouble(cp['longitude'] ?? cp['lon']),
                             'radius_meters': _parseDouble(cp['radius_meters'] ?? cp['radius']) ?? 50.0,
+                            'geofence_type': cp['geofence_type'] as String? ?? 'circle',
+                            'polygon_coordinates': cp['polygon_coordinates'],
                             'is_checkpoint': true,
                           });
                         }
@@ -434,6 +506,8 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                   'latitude': _parseDouble(config['latitude']),
                   'longitude': _parseDouble(config['longitude']),
                   'radius_meters': _parseDouble(config['radius_meters']) ?? 50.0,
+                  'geofence_type': config['geofence_type'] as String? ?? 'circle',
+                  'polygon_coordinates': config['polygon_coordinates'],
                   'is_checkpoint': false,
                 });
               }
@@ -471,9 +545,31 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                                 : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
                             subdomains: const ['a', 'b', 'c', 'd'],
                           ),
+                          PolygonLayer(
+                            polygons: allGeofences
+                                .where((b) => b['geofence_type'] == 'polygon' && b['polygon_coordinates'] != null)
+                                .map((b) {
+                                  final isCp = b['is_checkpoint'] == true;
+                                  final fillColor = isCp
+                                      ? AppTheme.primaryCyan.withOpacity(0.15)
+                                      : AppTheme.secondaryViolet.withOpacity(0.15);
+                                  final borderColor = isCp
+                                      ? AppTheme.primaryCyan.withOpacity(0.7)
+                                      : AppTheme.secondaryViolet.withOpacity(0.7);
+                                  final coords = _parsePolygonCoordinates(b['polygon_coordinates']);
+                                  return Polygon(
+                                    points: coords,
+                                    color: fillColor,
+                                    borderColor: borderColor,
+                                    borderStrokeWidth: isCp ? 1.5 : 2.0,
+                                    isFilled: true,
+                                  );
+                                })
+                                .toList(),
+                          ),
                           CircleLayer(
                             circles: allGeofences
-                                .where((b) => b['latitude'] != null && b['longitude'] != null)
+                                .where((b) => b['geofence_type'] != 'polygon' && b['latitude'] != null && b['longitude'] != null)
                                 .map((b) {
                                   final isCp = b['is_checkpoint'] == true;
                                   final circleColor = isCp 
@@ -596,7 +692,9 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                                     cpLng,
                                   );
 
-                                  if (dist <= cpRadius) {
+                                  final isInside = _checkIsInside(cp, _currentPosition!, dist);
+
+                                  if (isInside) {
                                     if (dist < minInsideDist) {
                                       minInsideDist = dist;
                                       nearestInside = cp;

@@ -147,6 +147,8 @@ class OfflineSyncService {
         'latitude': m['latitude'],
         'longitude': m['longitude'],
         'radius_meters': m['radius_meters'],
+        'geofence_type': m['geofence_type'],
+        'polygon_coordinates': m['polygon_coordinates'],
         'checkpoints': checkpoints.map((cp) {
           final c = cp as Map<String, dynamic>;
           return {
@@ -157,6 +159,8 @@ class OfflineSyncService {
             'longitude': c['longitude'],
             'radius_meters': c['radius_meters'],
             'is_active': c['is_active'],
+            'geofence_type': c['geofence_type'],
+            'polygon_coordinates': c['polygon_coordinates'],
           };
         }).toList(),
       };
