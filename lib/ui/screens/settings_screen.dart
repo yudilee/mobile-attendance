@@ -518,9 +518,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   success: _regSuccess,
                   onDismiss: () => setState(() { _regStatus = ''; _regMessage = ''; }),
                   onDone: () {
-                    // Switch to Dashboard tab (index 0) instead of popping the entire HomeScreen
+                    // Switch to Dashboard tab (index 0) - do NOT pop, as Settings is a tab inside HomeScreen
                     ref.read(homeTabIndexProvider.notifier).state = 0;
-                    Navigator.of(context).pop();
                   },
                 ),
               ],
