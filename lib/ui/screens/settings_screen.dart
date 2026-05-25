@@ -9,6 +9,7 @@ import '../../providers/network_sync_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../theme.dart';
 import 'help_screen.dart';
+import 'home_screen.dart'; // for homeTabIndexProvider
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -1012,14 +1013,18 @@ class _RegistrationResultCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(true),
+                onPressed: () {
+                  // Switch to Dashboard tab (index 0) instead of popping the entire HomeScreen
+                  ref.read(homeTabIndexProvider.notifier).state = 0;
+                  Navigator.of(context).pop();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: tintColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                child: const Text('Done — Go to Punch', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                child: const Text('Done — Go to Dashboard', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               ),
             ),
           ],
