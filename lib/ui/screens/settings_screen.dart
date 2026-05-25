@@ -517,6 +517,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   message: _regMessage,
                   success: _regSuccess,
                   onDismiss: () => setState(() { _regStatus = ''; _regMessage = ''; }),
+                  onDone: () {
+                    // Switch to Dashboard tab (index 0) instead of popping the entire HomeScreen
+                    ref.read(homeTabIndexProvider.notifier).state = 0;
+                    Navigator.of(context).pop();
+                  },
                 ),
               ],
 
@@ -950,12 +955,14 @@ class _RegistrationResultCard extends StatelessWidget {
   final String message;
   final bool success;
   final VoidCallback onDismiss;
+  final VoidCallback? onDone;
 
   const _RegistrationResultCard({
     required this.status,
     required this.message,
     required this.success,
     required this.onDismiss,
+    this.onDone,
   });
 
   @override
@@ -1013,11 +1020,7 @@ class _RegistrationResultCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
-                  // Switch to Dashboard tab (index 0) instead of popping the entire HomeScreen
-                  ref.read(homeTabIndexProvider.notifier).state = 0;
-                  Navigator.of(context).pop();
-                },
+                onPressed: onDone,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: tintColor,
                   foregroundColor: Colors.white,
