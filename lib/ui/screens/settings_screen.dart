@@ -176,8 +176,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             );
           }
-          // Switch to Dashboard tab - Settings is a tab inside HomeScreen's IndexedStack
-          ref.read(homeTabIndexProvider.notifier).state = 0;
+          // Switch to Dashboard tab using post-frame callback for safety
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref.read(homeTabIndexProvider.notifier).state = 0;
+          });
         } else {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
