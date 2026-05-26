@@ -176,11 +176,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             );
           }
-          // Give the scanner pop animation time to settle, then switch tab
-          // Settings is a tab inside HomeScreen's IndexedStack - just switch index
-          await Future.delayed(const Duration(milliseconds: 100));
+          // Push a fresh HomeScreen to force all providers and widgets to reinitialize
+          // with the newly saved data (employee ID, API key, etc.)
           if (context.mounted) {
-            ref.read(homeTabIndexProvider.notifier).state = 0;
+            await Future.delayed(const Duration(milliseconds: 300));
+            if (context.mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+                (route) => false,
+              );
+            }
           }
         } else {
           if (context.mounted) {
