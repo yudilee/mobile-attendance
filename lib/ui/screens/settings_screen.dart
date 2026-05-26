@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
@@ -518,8 +519,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   success: _regSuccess,
                   onDismiss: () => setState(() { _regStatus = ''; _regMessage = ''; }),
                   onDone: () {
-                    // Switch to Dashboard tab (index 0) - do NOT pop, as Settings is a tab inside HomeScreen
-                    ref.read(homeTabIndexProvider.notifier).state = 0;
+                    // Use post-frame callback to ensure safe navigation
+                    // After this frame completes, switch to Dashboard tab (index 0)
+                    // Do NOT pop Navigator - Settings is a tab inside HomeScreen's IndexedStack
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        ref.read(homeTabIndexProvider.notifier).state = 0;
+                      }
+                    });
                   },
                 ),
               ],
