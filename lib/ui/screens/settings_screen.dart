@@ -544,14 +544,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   success: _regSuccess,
                   onDismiss: () => setState(() { _regStatus = ''; _regMessage = ''; }),
                   onDone: () {
-                    // Use post-frame callback to ensure safe navigation
-                    // After this frame completes, switch to Dashboard tab (index 0)
-                    // Do NOT pop Navigator - Settings is a tab inside HomeScreen's IndexedStack
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) {
-                        ref.read(homeTabIndexProvider.notifier).state = 0;
-                      }
-                    });
+                    // After manual registration, close the app to reload with new settings
+                    SystemNavigator.pop();
                   },
                 ),
               ],
