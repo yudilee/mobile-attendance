@@ -121,9 +121,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final token = data['token'] as String;
         
         // Intelligent Localhost Fallback:
-        // If the scanned QR url points to localhost but the user has already entered
-        // a custom host in their Server URL controller, we swap localhost/127.0.0.1
-        // with the user's custom host so onboarding works seamlessly over LAN/Emulator!
         if (url.contains('localhost') || url.contains('127.0.0.1')) {
           final customUrl = _serverUrlCtrl.text.trim();
           if (customUrl.isNotEmpty && customUrl.startsWith('http')) {
@@ -153,47 +150,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
         debugPrint('✅ onboardDevice response: $response');
         
-        final apiKey = response['api_key'] as String?;
-        if (apiKey != null && apiKey.isNotEmpty) {
-          await AppSettings.setApiKey(apiKey);
-          _apiKeyCtrl.text = apiKey;
-          debugPrint('✅ Saved new API key: ${apiKey.substring(0, 20)}...');
-        }
+        if (response['status'] == 'active') {
+          final apiKey = response['api_key'] as String?;
+          if (apiKey != null && apiKey.isNotEmpty) {
+            await AppSettings.setApiKey(apiKey);
+            _apiKeyCtrl.text = apiKey;
+          }
 
-        final empId = response['employee_id'] as String?;
-        if (empId != null && empId.isNotEmpty) {
-          await AppSettings.setEmployeeId(empId);
+          final empId = response['employee_id'] as String?;
+          if (empId != null && empId.isNotEmpty) {
+            await AppSettings.setEmployeeId(empId);
+          }
+          
+          final empName = response['employee_name'] as String?;
+          if (empName != null && empName.isNotEmpty) {
+            await AppSettings.setEmployeeName(empName);
+          }
+          
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Device registered successfully!'),
+                backgroundColor: Color(0xFF009CA6),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+          // Switch to Dashboard tab - Settings is a tab inside HomeScreen's IndexedStack
+          ref.read(homeTabIndexProvider.notifier).state = 0;
+        } else {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Registration status: ${response['status']}'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
         }
-        
-        final empName = response['employee_name'] as String?;
-        if (empName != null && empName.isNotEmpty) {
-          await AppSettings.setEmployeeName(empName);
-        }
-        
-        // After successful registration, skip the result card and navigate directly to Dashboard
-        if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              ref.read(homeTabIndexProvider.notifier).state = 0;
-            }
-          });
-        }
-        // Don't show result card - directly navigate to Dashboard
         
       } catch (e) {
         debugPrint('❌ QR onboarding error: $e');
-        setState(() {
-          _regStatus = 'error';
-          _regMessage = 'Invalid QR code or connection failed: ${e.toString()}';
-          _regSuccess = false;
-        });
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Registration failed: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       } finally {
-        if (mounted) setState(() {
-          _registering = false;
-          // Clear result card after navigation
-          _regStatus = '';
-          _regMessage = '';
-        });
+        if (mounted) {
+          setState(() {
+            _registering = false;
+            _regStatus = '';
+            _regMessage = '';
+          });
+        }
       }
     }
   }
