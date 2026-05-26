@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
@@ -10,6 +9,7 @@ import '../../providers/network_sync_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../theme.dart';
 import 'help_screen.dart';
+import 'home_screen.dart'; // for homeTabIndexProvider
 import 'home_screen.dart'; // for homeTabIndexProvider
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -145,16 +145,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final security = SecurityService();
         final uuid = await security.getDeviceUniqueId();
         
+        debugPrint('🔄 Calling onboardDevice with token: ${token.substring(0, 20)}...');
         final response = await api.onboardDevice(
           token: token,
           deviceUuid: uuid,
           deviceLabel: _deviceLabelCtrl.text.isNotEmpty ? _deviceLabelCtrl.text : null,
         );
+        debugPrint('✅ onboardDevice response: $response');
         
         final apiKey = response['api_key'] as String?;
         if (apiKey != null && apiKey.isNotEmpty) {
           await AppSettings.setApiKey(apiKey);
           _apiKeyCtrl.text = apiKey;
+          debugPrint('✅ Saved new API key: ${apiKey.substring(0, 20)}...');
         }
 
         final empId = response['employee_id'] as String?;
@@ -167,22 +170,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           await AppSettings.setEmployeeName(empName);
         }
         
-        setState(() {
-          _regStatus = response['status'] as String? ?? 'pending_approval';
-          _regMessage = _regStatus == 'active' 
-              ? 'Device onboarded and activated successfully!'
-              : 'Device onboarded! Waiting for admin approval.';
-          _regSuccess = true;
-        });
+        // After successful registration, skip the result card and navigate directly to Dashboard
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              ref.read(homeTabIndexProvider.notifier).state = 0;
+            }
+          });
+        }
+        // Don't show result card - directly navigate to Dashboard
         
       } catch (e) {
+        debugPrint('❌ QR onboarding error: $e');
         setState(() {
           _regStatus = 'error';
           _regMessage = 'Invalid QR code or connection failed: ${e.toString()}';
           _regSuccess = false;
         });
       } finally {
-        if (mounted) setState(() => _registering = false);
+        if (mounted) setState(() {
+          _registering = false;
+          // Clear result card after navigation
+          _regStatus = '';
+          _regMessage = '';
+        });
       }
     }
   }
