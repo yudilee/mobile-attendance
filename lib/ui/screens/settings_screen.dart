@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
@@ -9,8 +10,6 @@ import '../../providers/network_sync_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../theme.dart';
 import 'help_screen.dart';
-import 'home_screen.dart'; // for homeTabIndexProvider
-import 'home_screen.dart'; // for homeTabIndexProvider
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -167,25 +166,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             await AppSettings.setEmployeeName(empName);
           }
           
+          // Show success message and close the app so it restarts cleanly
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Device registered successfully!'),
+                content: Text('Device registered! Restarting...'),
                 backgroundColor: Color(0xFF009CA6),
-                duration: Duration(seconds: 2),
               ),
             );
           }
-          // Push a fresh HomeScreen to force all providers and widgets to reinitialize
-          // with the newly saved data (employee ID, API key, etc.)
+          await Future.delayed(const Duration(seconds: 1));
           if (context.mounted) {
-            await Future.delayed(const Duration(milliseconds: 300));
-            if (context.mounted) {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
-                (route) => false,
-              );
-            }
+            SystemNavigator.pop();
           }
         } else {
           if (context.mounted) {
