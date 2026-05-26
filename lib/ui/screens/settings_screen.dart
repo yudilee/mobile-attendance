@@ -1,5 +1,3 @@
-import 'dart:convert';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +8,7 @@ import '../../providers/network_sync_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../theme.dart';
 import 'help_screen.dart';
+import 'onboarding_scanner.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -92,124 +91,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
 
   Future<void> _scanOnboardQr(BuildContext context) async {
-    final result = await Navigator.of(context).push<String>(
+    final security = SecurityService();
+    final uuid = await security.getDeviceUniqueId();
+    await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => Scaffold(
-          appBar: AppBar(title: const Text('Scan Onboarding QR')),
-          body: MobileScanner(
-            onDetect: (capture) {
-              final List<Barcode> barcodes = capture.barcodes;
-              for (final barcode in barcodes) {
-                if (barcode.rawValue != null) {
-                  Navigator.of(context).pop(barcode.rawValue);
-                  break;
-                }
-              }
-            },
-          ),
+        builder: (_) => OnboardingScanner(
+          deviceUuid: uuid,
+          fallbackServerUrl: _serverUrlCtrl.text,
         ),
       ),
     );
-
-    if (result != null) {
-      try {
-        setState(() { _registering = true; _regStatus = ''; _regMessage = ''; });
-        
-        final data = jsonDecode(result) as Map<String, dynamic>;
-        var url = data['url'] as String;
-        final token = data['token'] as String;
-        
-        // Intelligent Localhost Fallback:
-        if (url.contains('localhost') || url.contains('127.0.0.1')) {
-          final customUrl = _serverUrlCtrl.text.trim();
-          if (customUrl.isNotEmpty && customUrl.startsWith('http')) {
-            try {
-              final parsedCustom = Uri.parse(customUrl);
-              final parsedQr = Uri.parse(url);
-              url = url.replaceAll(
-                '${parsedQr.host}:${parsedQr.port}',
-                '${parsedCustom.host}:${parsedCustom.port}',
-              ).replaceAll(parsedQr.host, parsedCustom.host);
-            } catch (_) {}
-          }
-        }
-        
-        await AppSettings.setServerUrl(url);
-        _serverUrlCtrl.text = url;
-        
-        final api = ApiService();
-        final security = SecurityService();
-        final uuid = await security.getDeviceUniqueId();
-        
-        debugPrint('🔄 Calling onboardDevice with token: ${token.substring(0, 20)}...');
-        final response = await api.onboardDevice(
-          token: token,
-          deviceUuid: uuid,
-          deviceLabel: _deviceLabelCtrl.text.isNotEmpty ? _deviceLabelCtrl.text : null,
-        );
-        debugPrint('✅ onboardDevice response: $response');
-        
-        if (response['status'] == 'active') {
-          final apiKey = response['api_key'] as String?;
-          if (apiKey != null && apiKey.isNotEmpty) {
-            await AppSettings.setApiKey(apiKey);
-            _apiKeyCtrl.text = apiKey;
-          }
-
-          final empId = response['employee_id'] as String?;
-          if (empId != null && empId.isNotEmpty) {
-            await AppSettings.setEmployeeId(empId);
-          }
-          
-          final empName = response['employee_name'] as String?;
-          if (empName != null && empName.isNotEmpty) {
-            await AppSettings.setEmployeeName(empName);
-          }
-          
-          // Show success message and close the app so it restarts cleanly
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Device registered! Restarting...'),
-                backgroundColor: Color(0xFF009CA6),
-              ),
-            );
-          }
-          await Future.delayed(const Duration(seconds: 1));
-          if (context.mounted) {
-            SystemNavigator.pop();
-          }
-        } else {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Registration status: ${response['status']}'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
-        }
-        
-      } catch (e) {
-        debugPrint('❌ QR onboarding error: $e');
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Registration failed: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() {
-            _registering = false;
-            _regStatus = '';
-            _regMessage = '';
-          });
-        }
-      }
-    }
   }
 
   Future<void> _registerDevice() async {
