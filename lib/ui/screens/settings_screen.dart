@@ -176,10 +176,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             );
           }
-          // Switch to Dashboard tab using post-frame callback for safety
-          WidgetsBinding.instance.addPostFrameCallback((_) {
+          // Give the scanner pop animation time to settle, then switch tab
+          // Settings is a tab inside HomeScreen's IndexedStack - just switch index
+          await Future.delayed(const Duration(milliseconds: 100));
+          if (context.mounted) {
             ref.read(homeTabIndexProvider.notifier).state = 0;
-          });
+          }
         } else {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
