@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
 import '../../services/security_service.dart';
+import 'home_screen.dart';
 
 /// Self-contained onboarding QR scanner that handles scan + API call + save
 /// all within itself, then closes the app. Never navigates back to Settings.
@@ -98,7 +98,13 @@ class _OnboardingScannerState extends State<OnboardingScanner> {
 
         setState(() => _success = true);
         await Future.delayed(const Duration(seconds: 1));
-        if (mounted) SystemNavigator.pop();
+        if (mounted) {
+          // Push a fresh HomeScreen - replaces everything on the nav stack
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+            (route) => false,
+          );
+        }
       } else {
         setState(() => _error = 'Status: ${response['status']}');
       }
