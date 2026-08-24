@@ -932,6 +932,18 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
               _NotConfiguredCard(onSetupTap: _openSettings, gaps: _configGaps)
             else if (deviceConfig.isLoading && !deviceConfig.hasValue && !deviceConfig.hasError) 
               const Center(child: CircularProgressIndicator(color: Color(0xFF009CA6)))
+            else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'auth_error')
+              _AuthErrorCard(
+                message: deviceConfig.value?['message'] ?? 'Authentication failed. Please re-scan QR in Settings.',
+                onSettingsTap: _openSettings,
+              )
+            else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'forbidden')
+              _AuthErrorCard(
+                title: 'Device Suspended',
+                message: deviceConfig.value?['message'] ?? 'This device is deactivated by admin.',
+                onSettingsTap: _openSettings,
+                icon: Icons.block,
+              )
             else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending_approval')
               _PendingAssignmentCard(message: deviceConfig.value?['message'] ?? 'Waiting for admin approval. Contact HR.')
             else if (deviceConfig.hasValue && deviceConfig.value?['status'] == 'pending_branch')
@@ -995,35 +1007,140 @@ class _PunchTabState extends ConsumerState<PunchTab> with WidgetsBindingObserver
                           lastAuthTime: punchState.lastBiometricAuthTime!,
                           sessionSeconds: punchState.biometricSessionSeconds,
                         ),
-                      ref.watch(punchTypesProvider).when(
-                        data: (punchTypes) {
-                          if (punchTypes.isEmpty) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
-                              child: Text('No punch types available. Please sync.', style: TextStyle(color: Colors.grey)),
-                            );
-                          }
-                          return Column(
-                            children: punchTypes.map((pt) {
-                              final isOut = pt.code.toLowerCase().contains('out');
-                              final color = isOut ? Colors.red.shade600 : Theme.of(context).colorScheme.primary;
-                              final icon = isOut ? Icons.logout_rounded : Icons.login_rounded;
-                              final isLoading = punchState.status == PunchStatus.loading;
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: _PunchButton(
-                                  label: pt.label.toUpperCase(),
-                                  icon: icon,
-                                  color: color,
-                                  enabled: !isLoading,
-                                  loading: isLoading,
-                                  onPressed: () => punchNotifier.performPunch(_employeeId, pt.code),
+                      // Smart Attendance State Badge
+                      ref.watch(todayAttendanceStatusProvider).when(
+                        data: (attendanceStatus) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: attendanceStatus.isClockedIn 
+                                    ? Colors.green.withOpacity(0.12) 
+                                    : Colors.blue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: attendanceStatus.isClockedIn 
+                                      ? Colors.green.shade400.withOpacity(0.4) 
+                                      : Colors.blue.shade400.withOpacity(0.3),
                                 ),
-                              );
-                            }).toList(),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    attendanceStatus.isClockedIn ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                                    size: 16,
+                                    color: attendanceStatus.isClockedIn ? Colors.green.shade600 : Colors.blue.shade600,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    attendanceStatus.isClockedIn
+                                        ? 'Currently Clocked In${attendanceStatus.lastPunchTime != null ? " (${attendanceStatus.lastPunchTime})" : ""}'
+                                        : 'Not Clocked In Today',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: attendanceStatus.isClockedIn ? Colors.green.shade700 : Colors.blue.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           );
                         },
-                        loading: () => const CircularProgressIndicator(color: Color(0xFF009CA6)),
+                        loading: () => const SizedBox.shrink(),
+                        error: (_, __) => const SizedBox.shrink(),
+                      ),
+                      ref.watch(punchTypesProvider).when(
+                        data: (punchTypes) {
+                          final attendanceStatus = ref.watch(todayAttendanceStatusProvider).valueOrNull;
+                          final isLoading = punchState.status == PunchStatus.loading;
+
+                          // Find in and out punch types if available, or default
+                          final inPt = punchTypes.isNotEmpty
+                              ? punchTypes.firstWhere(
+                                  (pt) => pt.code.toLowerCase().contains('in') && !pt.code.toLowerCase().contains('break'),
+                                  orElse: () => punchTypes.first,
+                                )
+                              : null;
+                          final outPt = punchTypes.isNotEmpty
+                              ? punchTypes.firstWhere(
+                                  (pt) => pt.code.toLowerCase().contains('out') && !pt.code.toLowerCase().contains('break'),
+                                  orElse: () => punchTypes.last,
+                                )
+                              : null;
+
+                          final inCode = inPt?.code ?? 'in';
+                          final inLabel = inPt?.label.toUpperCase() ?? 'CLOCK IN';
+                          final outCode = outPt?.code ?? 'out';
+                          final outLabel = outPt?.label.toUpperCase() ?? 'CLOCK OUT';
+
+                          final otherTypes = punchTypes
+                              .where((pt) => pt.code != inCode && pt.code != outCode)
+                              .toList();
+
+                          return Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: _PunchButton(
+                                        label: inLabel,
+                                        icon: Icons.login_rounded,
+                                        color: Theme.of(context).colorScheme.primary,
+                                        compact: true,
+                                        enabled: !isLoading,
+                                        loading: isLoading,
+                                        onPressed: () => punchNotifier.performPunch(_employeeId, inCode),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _PunchButton(
+                                        label: outLabel,
+                                        icon: Icons.logout_rounded,
+                                        color: Colors.red.shade600,
+                                        compact: true,
+                                        enabled: !isLoading,
+                                        loading: isLoading,
+                                        onPressed: () => punchNotifier.performPunch(_employeeId, outCode),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (otherTypes.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    alignment: WrapAlignment.center,
+                                    children: otherTypes.map((pt) {
+                                      return OutlinedButton.icon(
+                                        onPressed: isLoading ? null : () => punchNotifier.performPunch(_employeeId, pt.code),
+                                        icon: Icon(pt.code.toLowerCase().contains('out') ? Icons.logout : Icons.login, size: 14),
+                                        label: Text(pt.label, style: const TextStyle(fontSize: 11)),
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                        loading: () => const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: CircularProgressIndicator(color: Color(0xFF009CA6)),
+                          ),
+                        ),
                         error: (_, __) => const SizedBox.shrink(),
                       ),
                       Builder(builder: (context) {
@@ -1678,10 +1795,11 @@ class _PendingAssignmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
-        color: Colors.orange.withOpacity(0.08),
+        color: Colors.orange.withOpacity(isDark ? 0.08 : 0.06),
         border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
@@ -1692,9 +1810,24 @@ class _PendingAssignmentCard extends StatelessWidget {
             child: const Icon(Icons.app_registration_rounded, size: 40, color: Colors.orange),
           ),
           const SizedBox(height: 16),
-          const Text('Device Pending Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
+          Text(
+            'Device Pending Setup',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: isDark ? Colors.white : Colors.orange.shade900,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text(message, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade300, height: 1.4, fontSize: 14)),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              height: 1.4,
+              fontSize: 14,
+            ),
+          ),
         ],
       ),
     );
@@ -1714,10 +1847,11 @@ class _MaxDevicesReachedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
-        color: AppTheme.errorRed.withOpacity(0.08),
+        color: AppTheme.errorRed.withOpacity(isDark ? 0.08 : 0.06),
         border: Border.all(color: AppTheme.errorRed.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
@@ -1728,13 +1862,97 @@ class _MaxDevicesReachedCard extends StatelessWidget {
             child: const Icon(Icons.devices, size: 40, color: AppTheme.errorRed),
           ),
           const SizedBox(height: 16),
-          const Text('Device Limit Reached', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
+          Text(
+            'Device Limit Reached',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: isDark ? Colors.white : Colors.red.shade900,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text(message, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade300, height: 1.4, fontSize: 14)),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              height: 1.4,
+              fontSize: 14,
+            ),
+          ),
           const SizedBox(height: 12),
           Text(
             'Active Devices: $deviceCount / $maxDevices',
             style: const TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.bold, fontSize: 15),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AuthErrorCard extends StatelessWidget {
+  final String title;
+  final String message;
+  final VoidCallback onSettingsTap;
+  final IconData icon;
+
+  const _AuthErrorCard({
+    this.title = 'Authentication Error',
+    required this.message,
+    required this.onSettingsTap,
+    this.icon = Icons.lock_outline_rounded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: AppTheme.glassDecoration(context: context, borderRadius: 16).copyWith(
+        color: AppTheme.errorRed.withOpacity(isDark ? 0.08 : 0.06),
+        border: Border.all(color: AppTheme.errorRed.withOpacity(0.35), width: 1.5),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: AppTheme.errorRed.withOpacity(0.15), shape: BoxShape.circle),
+            child: Icon(icon, size: 40, color: AppTheme.errorRed),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: isDark ? Colors.white : Colors.red.shade900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              height: 1.4,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onSettingsTap,
+              icon: const Icon(Icons.qr_code_scanner, size: 18),
+              label: const Text('Configure / Re-scan QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.errorRed,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
           ),
         ],
       ),
@@ -1749,6 +1967,7 @@ class _NotConfiguredCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final steps = <_SetupStep>[
       _SetupStep(
         icon: Icons.badge,
@@ -1770,7 +1989,7 @@ class _NotConfiguredCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: AppTheme.glassDecoration(context: context, borderRadius: 20).copyWith(
-        color: Colors.orange.withOpacity(0.08),
+        color: Colors.orange.withOpacity(isDark ? 0.08 : 0.06),
         border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1.5),
       ),
       child: Column(
@@ -1783,13 +2002,26 @@ class _NotConfiguredCard extends StatelessWidget {
                 child: const Icon(Icons.warning_amber_rounded, size: 28, color: Colors.orange),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Setup Required', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.white)),
-                    SizedBox(height: 2),
-                    Text('Complete these steps to start clocking in', style: TextStyle(fontSize: 13, color: Colors.white70)),
+                    Text(
+                      'Setup Required',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
+                        color: isDark ? Colors.white : Colors.orange.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Complete these steps to start clocking in',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? Colors.white70 : Colors.grey.shade700,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1800,11 +2032,11 @@ class _NotConfiguredCard extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
               children: [
-                Icon(s.done ? Icons.check_circle : Icons.radio_button_unchecked, size: 18, color: s.done ? AppTheme.successGreen : Colors.white38),
+                Icon(s.done ? Icons.check_circle : Icons.radio_button_unchecked, size: 18, color: s.done ? AppTheme.successGreen : (isDark ? Colors.white38 : Colors.grey.shade400)),
                 const SizedBox(width: 8),
-                Icon(s.icon, size: 16, color: s.done ? AppTheme.successGreen : Colors.white38),
+                Icon(s.icon, size: 16, color: s.done ? AppTheme.successGreen : (isDark ? Colors.white38 : Colors.grey.shade400)),
                 const SizedBox(width: 8),
-                Text(s.label, style: TextStyle(fontSize: 14, color: s.done ? AppTheme.successGreen : Colors.white70, fontWeight: s.done ? FontWeight.w600 : FontWeight.normal)),
+                Text(s.label, style: TextStyle(fontSize: 14, color: s.done ? AppTheme.successGreen : (isDark ? Colors.white70 : Colors.grey.shade700), fontWeight: s.done ? FontWeight.w600 : FontWeight.normal)),
                 const Spacer(),
                 if (s.done)
                   const Text('Done', style: TextStyle(fontSize: 11, color: AppTheme.successGreen, fontWeight: FontWeight.bold)),
@@ -1846,6 +2078,7 @@ class _PunchButton extends StatefulWidget {
   final VoidCallback onPressed;
   final bool enabled;
   final bool loading;
+  final bool compact;
 
   const _PunchButton({
     required this.label,
@@ -1854,6 +2087,7 @@ class _PunchButton extends StatefulWidget {
     required this.onPressed,
     this.enabled = true,
     this.loading = false,
+    this.compact = false,
   });
 
   @override
@@ -1913,16 +2147,16 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
         : Border.all(color: isDark ? primary.withOpacity(0.5) : primary.withOpacity(0.5), width: 1.5);
         
     final bgColor = isOut 
-        ? (isDark ? Colors.red.withOpacity(0.1) : Colors.red.shade50)
-        : (isDark ? primary.withOpacity(0.15) : primary.withOpacity(0.15));
+        ? (isDark ? Colors.red.withOpacity(0.12) : Colors.red.shade50)
+        : (isDark ? primary.withOpacity(0.15) : primary.withOpacity(0.12));
         
     final textColor = isDark ? Colors.white : (isOut ? Colors.red.shade700 : primary);
     final iconColor = isDark ? (isOut ? Colors.red.shade400 : primary) : (isOut ? Colors.red.shade700 : primary);
     
     final shadow = BoxShadow(
-      color: isOut ? Colors.red.withOpacity(0.1) : primary.withOpacity(0.2),
-      blurRadius: 16,
-      offset: const Offset(0, 4),
+      color: isOut ? Colors.red.withOpacity(0.1) : primary.withOpacity(0.15),
+      blurRadius: 12,
+      offset: const Offset(0, 3),
     );
 
     return AnimatedBuilder(
@@ -1933,7 +2167,7 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
       ),
       child: Container(
         width: double.infinity,
-        height: 64,
+        height: widget.compact ? 58 : 64,
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: BorderRadius.circular(16),
@@ -1943,7 +2177,7 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(16),
             onTapDown: _handleTapDown,
             onTapUp: _handleTapUp,
             onTapCancel: _handleTapCancel,
@@ -1954,34 +2188,36 @@ class _PunchButtonState extends State<_PunchButton> with SingleTickerProviderSta
               }
             },
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
+              padding: EdgeInsets.symmetric(horizontal: widget.compact ? 12 : 20),
               child: Row(
+                mainAxisAlignment: widget.compact ? MainAxisAlignment.center : MainAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: EdgeInsets.all(widget.compact ? 4 : 8),
                     child: widget.loading
                         ? SizedBox(
-                            width: 24, height: 24,
+                            width: 20, height: 20,
                             child: CircularProgressIndicator(
                               color: iconColor,
                               strokeWidth: 2,
                             ),
                           )
-                        : Icon(widget.icon, color: iconColor, size: 24),
+                        : Icon(widget.icon, color: iconColor, size: widget.compact ? 22 : 24),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
+                  SizedBox(width: widget.compact ? 6 : 12),
+                  Flexible(
                     child: Text(
                       widget.loading ? 'Processing...' : widget.label,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: textColor,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
+                        fontSize: widget.compact ? 15 : 18,
+                        fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),
                     ),
                   ),
-                  if (!widget.loading)
+                  if (!widget.loading && !widget.compact)
                     Icon(Icons.arrow_forward_ios, color: textColor.withOpacity(0.5), size: 20),
                 ],
               ),

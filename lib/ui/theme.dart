@@ -15,6 +15,7 @@ class AppTheme {
   // Success / Error / Warning
   static const Color successGreen = Color(0xFF10B981);
   static const Color errorRed = Color(0xFFEF4444);
+  static const Color accentOrange = Color(0xFFF59E0B);
 
   // Gradient for prominent buttons
   static const LinearGradient primaryGradient = LinearGradient(

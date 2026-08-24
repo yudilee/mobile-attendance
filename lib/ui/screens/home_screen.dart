@@ -8,6 +8,9 @@ import 'history_screen.dart';
 import 'settings_screen.dart';
 import 'help_screen.dart';
 
+import '../../services/update_service.dart';
+import '../widgets/update_dialog.dart';
+
 /// Provider exposing the current tab index so other screens can switch tabs.
 final homeTabIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -31,6 +34,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     // Start background sync manager for offline punch queue
     Future.microtask(() => ref.read(networkSyncProvider).start());
+
+    // Check for in-app OTA updates
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final update = await UpdateService.checkForUpdates();
+      if (update.hasUpdate && mounted) {
+        UpdateDialog.show(context, update);
+      }
+    });
   }
 
   @override

@@ -122,16 +122,25 @@ class OfflineSyncService {
     final branchesJson = _encodeBranches(branches);
 
     // Use first branch as primary, or defaults if empty
-    final primary = branches.isNotEmpty ? branches[0] as Map<String, dynamic> : null;
+    Map<String, dynamic>? primary;
+    if (branches.isNotEmpty && branches[0] is Map) {
+      primary = Map<String, dynamic>.from(branches[0] as Map);
+    }
+
+    final lat = (primary?['latitude'] as num?)?.toDouble() ?? 0.0;
+    final lon = (primary?['longitude'] as num?)?.toDouble() ?? 0.0;
+    final radius = (primary?['radius_meters'] as num?)?.toDouble() ?? 100.0;
+    final branchName = primary?['name']?.toString() ??
+        (branches.length > 1 ? '${branches.length} Locations' : 'Unknown');
+    final regStatus = config['status']?.toString() ?? 'pending';
 
     await _db.saveCachedConfig(
       CachedConfigCompanion.insert(
-        branchName: primary?['name'] as String? ??
-            (branches.length > 1 ? '${branches.length} Locations' : 'Unknown'),
-        latitude: primary?['latitude'] as double? ?? 0.0,
-        longitude: primary?['longitude'] as double? ?? 0.0,
-        radiusMeters: primary?['radius_meters'] as double? ?? 100.0,
-        registrationStatus: Value(config['status'] as String? ?? 'pending'),
+        branchName: branchName,
+        latitude: lat,
+        longitude: lon,
+        radiusMeters: radius,
+        registrationStatus: Value(regStatus),
         branchesJson: Value(branchesJson),
       ),
     );
@@ -139,27 +148,29 @@ class OfflineSyncService {
 
   String _encodeBranches(List<dynamic> branches) {
     final list = branches.map((b) {
-      final m = b as Map<String, dynamic>;
+      if (b is! Map) return <String, dynamic>{};
+      final m = Map<String, dynamic>.from(b);
       final checkpoints = m['checkpoints'] as List<dynamic>? ?? [];
       return {
         'id': m['id'],
-        'name': m['name'],
-        'latitude': m['latitude'],
-        'longitude': m['longitude'],
-        'radius_meters': m['radius_meters'],
-        'geofence_type': m['geofence_type'],
+        'name': m['name']?.toString() ?? '',
+        'latitude': (m['latitude'] as num?)?.toDouble() ?? 0.0,
+        'longitude': (m['longitude'] as num?)?.toDouble() ?? 0.0,
+        'radius_meters': (m['radius_meters'] as num?)?.toDouble() ?? 50.0,
+        'geofence_type': m['geofence_type']?.toString() ?? 'circle',
         'polygon_coordinates': m['polygon_coordinates'],
         'checkpoints': checkpoints.map((cp) {
-          final c = cp as Map<String, dynamic>;
+          if (cp is! Map) return <String, dynamic>{};
+          final c = Map<String, dynamic>.from(cp);
           return {
             'id': c['id'],
             'branch_id': c['branch_id'],
-            'name': c['name'],
-            'latitude': c['latitude'],
-            'longitude': c['longitude'],
-            'radius_meters': c['radius_meters'],
-            'is_active': c['is_active'],
-            'geofence_type': c['geofence_type'],
+            'name': c['name']?.toString() ?? '',
+            'latitude': (c['latitude'] as num?)?.toDouble() ?? 0.0,
+            'longitude': (c['longitude'] as num?)?.toDouble() ?? 0.0,
+            'radius_meters': (c['radius_meters'] as num?)?.toDouble() ?? 50.0,
+            'is_active': c['is_active'] == true,
+            'geofence_type': c['geofence_type']?.toString() ?? 'circle',
             'polygon_coordinates': c['polygon_coordinates'],
           };
         }).toList(),
@@ -195,12 +206,12 @@ class OfflineSyncService {
   Future<void> cachePunchTypes(List<Map<String, dynamic>> types) async {
     await _db.savePunchTypes(
       types.map((t) => CachedPunchTypesCompanion.insert(
-        code: t['code'] as String,
-        label: t['label'] as String,
-        colorHex: Value(t['color_hex'] as String? ?? '#009CA6'),
-        icon: Value(t['icon'] as String? ?? 'schedule'),
-        displayOrder: Value(t['display_order'] as int? ?? 0),
-        requiresGeofence: Value(t['requires_geofence'] as bool? ?? true),
+        code: t['code']?.toString() ?? 'In',
+        label: t['label']?.toString() ?? 'Clock In',
+        colorHex: Value(t['color_hex']?.toString() ?? '#009CA6'),
+        icon: Value(t['icon']?.toString() ?? 'schedule'),
+        displayOrder: Value((t['display_order'] as num?)?.toInt() ?? 0),
+        requiresGeofence: Value(t['requires_geofence'] != false),
       )).toList(),
     );
   }

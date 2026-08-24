@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
-import '../../services/security_service.dart';
 import 'home_screen.dart';
 
 /// Self-contained onboarding QR scanner that handles scan + API call + save
@@ -56,9 +55,24 @@ class _OnboardingScannerState extends State<OnboardingScanner> {
 
   Future<void> _handleQrData(String rawValue) async {
     try {
-      final data = jsonDecode(rawValue) as Map<String, dynamic>;
-      var url = data['url'] as String;
-      final token = data['token'] as String;
+      Map<String, dynamic> data = {};
+      try {
+        final decoded = jsonDecode(rawValue);
+        if (decoded is Map<String, dynamic>) {
+          data = decoded;
+        } else if (decoded is Map) {
+          data = Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        // Fallback: If plain text token or string was scanned
+        data = {'token': rawValue.trim()};
+      }
+
+      // Extract Server URL with fallback
+      var url = (data['server_url'] ?? data['url'] ?? data['server'] ?? widget.fallbackServerUrl).toString().trim();
+      if (url.isEmpty || !url.startsWith('http')) {
+        url = 'https://attendance.hartonomotor-group.com';
+      }
 
       // Localhost fallback
       if (url.contains('localhost') || url.contains('127.0.0.1')) {
@@ -74,43 +88,66 @@ class _OnboardingScannerState extends State<OnboardingScanner> {
         }
       }
 
+      if (url.endsWith('/')) {
+        url = url.substring(0, url.length - 1);
+      }
+
       await AppSettings.setServerUrl(url);
 
+      // Extract API Key and Employee ID
+      final apiKey = (data['api_key'] ?? data['token'] ?? data['key'] ?? '').toString().trim();
+      final empId = (data['employee_id'] ?? data['pin'] ?? data['emp_id'] ?? '').toString().trim();
+      final empName = (data['employee_name'] ?? data['name'] ?? '').toString().trim();
+
+      if (apiKey.isNotEmpty) {
+        await AppSettings.setApiKey(apiKey);
+      }
+      if (empId.isNotEmpty) {
+        await AppSettings.setEmployeeId(empId);
+      }
+      if (empName.isNotEmpty) {
+        await AppSettings.setEmployeeName(empName);
+      }
+
       final api = ApiService();
+
+      // Perform onboarding call to register device
       final response = await api.onboardDevice(
-        token: token,
+        token: apiKey.isNotEmpty ? apiKey : null,
+        employeeId: empId.isNotEmpty ? empId : null,
         deviceUuid: widget.deviceUuid,
         deviceLabel: null,
       );
 
-      if (response['status'] == 'active') {
-        final apiKey = response['api_key'] as String?;
-        if (apiKey != null && apiKey.isNotEmpty) {
-          await AppSettings.setApiKey(apiKey);
+      final status = response['status'] ?? response['device_status'] ?? 'active';
+
+      if (status == 'active' || status == 'approved' || status == 'ok') {
+        final returnedApiKey = (response['api_key'] ?? '').toString().trim();
+        if (returnedApiKey.isNotEmpty) {
+          await AppSettings.setApiKey(returnedApiKey);
         }
-        final empId = response['employee_id'] as String?;
-        if (empId != null && empId.isNotEmpty) {
-          await AppSettings.setEmployeeId(empId);
+        final returnedEmpId = (response['employee_id'] ?? '').toString().trim();
+        if (returnedEmpId.isNotEmpty) {
+          await AppSettings.setEmployeeId(returnedEmpId);
         }
-        final empName = response['employee_name'] as String?;
-        if (empName != null && empName.isNotEmpty) {
-          await AppSettings.setEmployeeName(empName);
+        final returnedEmpName = (response['employee_name'] ?? '').toString().trim();
+        if (returnedEmpName.isNotEmpty) {
+          await AppSettings.setEmployeeName(returnedEmpName);
         }
 
         setState(() => _success = true);
         await Future.delayed(const Duration(seconds: 1));
         if (mounted) {
-          // Push a fresh HomeScreen - replaces everything on the nav stack
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const HomeScreen()),
             (route) => false,
           );
         }
       } else {
-        setState(() => _error = 'Status: ${response['status']}');
+        setState(() => _error = response['detail'] ?? response['message'] ?? 'Status: $status');
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() => _error = e.toString().replaceAll('Exception: ', ''));
     }
   }
 

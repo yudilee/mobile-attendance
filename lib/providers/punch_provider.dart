@@ -25,6 +25,63 @@ final punchTypesProvider = StreamProvider<List<CachedPunchType>>((ref) {
   return query.watch();
 });
 
+/// Represents current day's punch status for the active employee
+class TodayAttendanceStatus {
+  final bool isClockedIn;
+  final String? lastPunchTime;
+  final String nextSuggestedPunchType; // 'in' or 'out'
+  final String nextSuggestedPunchLabel; // 'Clock In' or 'Clock Out'
+
+  TodayAttendanceStatus({
+    required this.isClockedIn,
+    this.lastPunchTime,
+    required this.nextSuggestedPunchType,
+    required this.nextSuggestedPunchLabel,
+  });
+}
+
+final todayAttendanceStatusProvider = StreamProvider<TodayAttendanceStatus>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return (db.select(db.punchHistory)
+    ..orderBy([(h) => OrderingTerm.desc(h.createdAt)])
+    ..limit(1))
+  .watch()
+  .map((list) {
+    if (list.isEmpty) {
+      return TodayAttendanceStatus(
+        isClockedIn: false,
+        lastPunchTime: null,
+        nextSuggestedPunchType: 'in',
+        nextSuggestedPunchLabel: 'Clock In',
+      );
+    }
+    final latest = list.first;
+    final now = DateTime.now();
+    final isToday = latest.createdAt.year == now.year &&
+                    latest.createdAt.month == now.month &&
+                    latest.createdAt.day == now.day;
+    
+    if (!isToday) {
+      return TodayAttendanceStatus(
+        isClockedIn: false,
+        lastPunchTime: null,
+        nextSuggestedPunchType: 'in',
+        nextSuggestedPunchLabel: 'Clock In',
+      );
+    }
+
+    final pType = latest.punchType.toLowerCase();
+    final isCurrentlyIn = pType == 'in' || pType == 'check in';
+    
+    return TodayAttendanceStatus(
+      isClockedIn: isCurrentlyIn,
+      lastPunchTime: latest.timestamp,
+      nextSuggestedPunchType: isCurrentlyIn ? 'out' : 'in',
+      nextSuggestedPunchLabel: isCurrentlyIn ? 'Clock Out' : 'Clock In',
+    );
+  });
+});
+
 // ─── Punch State ──────────────────────────────────────────────────────────────
 
 enum PunchStatus { idle, loading, success, offline, error, qrRequired, selfieRequired, nfcRequired }
@@ -440,10 +497,20 @@ final deviceConfigProvider = FutureProvider<Map<String, dynamic>>((ref) async {
     }
     
     return config;
-  } catch (_) {
-    // Network failed — try cached config
+  } on AuthenticationException catch (e) {
+    return {
+      'status': 'auth_error',
+      'message': e.message.isNotEmpty ? e.message : 'Invalid or expired API Key. Please re-scan QR in Settings.',
+    };
+  } on ForbiddenException catch (e) {
+    return {
+      'status': 'forbidden',
+      'message': e.message.isNotEmpty ? e.message : 'Device suspended or deactivated by admin.',
+    };
+  } on NetworkException catch (e) {
+    // Network failed — try cached config ONLY if previously approved and active
     final cached = await offlineSync.getCachedConfig();
-    if (cached != null) {
+    if (cached != null && (cached.registrationStatus == 'active' || cached.registrationStatus == 'approved')) {
       final branches = await offlineSync.getCachedBranches();
       return {
         'status': cached.registrationStatus,
@@ -458,7 +525,16 @@ final deviceConfigProvider = FutureProvider<Map<String, dynamic>>((ref) async {
         '_cached_at': cached.cachedAt.toIso8601String(),
       };
     }
-    rethrow;
+    return {
+      'status': 'offline',
+      'message': 'Offline mode: Unable to connect to server ($e).',
+    };
+  } catch (e) {
+    // General error
+    return {
+      'status': 'error',
+      'message': e.toString().replaceAll('Exception: ', ''),
+    };
   }
 });
 

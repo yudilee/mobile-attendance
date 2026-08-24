@@ -1,6 +1,6 @@
 name: mobile
 description: A secure, geo-fenced mobile attendance client.
-version: 1.0.0+1
+version: 1.0.2+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -45,6 +45,7 @@ dependencies:
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   firebase_crashlytics: ^4.3.10
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

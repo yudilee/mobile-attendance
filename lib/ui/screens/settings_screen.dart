@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/app_settings.dart';
 import '../../services/api_service.dart';
 import '../../services/security_service.dart';
+import '../../services/update_service.dart';
 import '../../providers/network_sync_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../theme.dart';
+import '../widgets/update_dialog.dart';
 import 'help_screen.dart';
 import 'onboarding_scanner.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -45,6 +48,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notificationsEnabled = true;
   bool _reminderNotifications = true;
 
+  // App version & Update check
+  String _currentAppVersion = '1.0.0';
+  bool _checkingUpdate = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +59,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      _currentAppVersion = pkg.version;
+    } catch (_) {}
+
     _serverUrlCtrl.text = await AppSettings.getServerUrl();
     _apiKeyCtrl.text = await AppSettings.getApiKey();
     _deviceLabelCtrl.text = await AppSettings.getDeviceLabel();
@@ -65,25 +77,94 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() {});
   }
 
+  Future<void> _checkForUpdatesManually() async {
+    setState(() => _checkingUpdate = true);
+    try {
+      final update = await UpdateService.checkForUpdates(isManualCheck: true);
+      if (!mounted) return;
+      setState(() => _checkingUpdate = false);
+
+      if (update.hasUpdate) {
+        UpdateDialog.show(context, update);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('App is up to date (v$_currentAppVersion)'),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _checkingUpdate = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to check for updates: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  String _diagnosticSummary = '';
+
   Future<void> _testConnection() async {
     final url = _serverUrlCtrl.text.trim();
     if (url.isEmpty) {
-      setState(() { _connectionOk = false; _connectionError = 'Enter a server URL first'; });
+      setState(() { _connectionOk = false; _connectionError = 'Enter a server URL first'; _diagnosticSummary = ''; });
       return;
     }
-    setState(() { _testingConnection = true; _connectionOk = null; _connectionError = ''; });
+    setState(() { _testingConnection = true; _connectionOk = null; _connectionError = ''; _diagnosticSummary = ''; });
     try {
       final api = ApiService();
       await AppSettings.setServerUrl(url); // Temporarily save for the test
       final status = await api.checkAppStatus();
-      if (status['status'] == 'ok' || status['status'] == 'error') {
-        // Both responses mean the server is reachable
-        setState(() => _connectionOk = true);
-      } else {
-        setState(() { _connectionOk = false; _connectionError = 'Unexpected response'; });
+      if (status['status'] != 'ok' && status['status'] != 'error') {
+        setState(() { _connectionOk = false; _connectionError = 'Unexpected server response'; });
+        return;
       }
+
+      final apiKey = _apiKeyCtrl.text.trim();
+      if (apiKey.isNotEmpty) {
+        await AppSettings.setApiKey(apiKey);
+        final security = SecurityService();
+        final uuid = await security.getDeviceUniqueId();
+        final diag = await api.getDeviceDiagnostics(deviceUuid: uuid);
+        final keyLabel = diag['api_key_label'] ?? 'Valid';
+        final devStatus = diag['device_status'] ?? 'unknown';
+        final branches = diag['assigned_branches_count'] ?? 0;
+        
+        setState(() {
+          _connectionOk = true;
+          _diagnosticSummary = 'Server: Connected ✅\nAPI Key: Valid ($keyLabel) ✅\nDevice Status: $devStatus ($branches branch(es) assigned)';
+        });
+      } else {
+        setState(() {
+          _connectionOk = true;
+          _diagnosticSummary = 'Server: Connected ✅ (API Key not tested)';
+        });
+      }
+    } on AuthenticationException catch (e) {
+      setState(() {
+        _connectionOk = false;
+        _connectionError = 'Server connected, but API Key is Invalid (401): ${e.message}';
+        _diagnosticSummary = 'Authentication Failed ❌ — please re-scan QR in Settings.';
+      });
+    } on ForbiddenException catch (e) {
+      setState(() {
+        _connectionOk = false;
+        _connectionError = 'Device Forbidden (403): ${e.message}';
+        _diagnosticSummary = 'Device Deactivated / Suspended ❌';
+      });
     } catch (e) {
-      setState(() { _connectionOk = false; _connectionError = e.toString().replaceAll('Exception: ', ''); });
+      setState(() {
+        _connectionOk = false;
+        _connectionError = e.toString().replaceAll('Exception: ', '');
+        _diagnosticSummary = '';
+      });
     } finally {
       if (mounted) setState(() => _testingConnection = false);
     }
@@ -404,6 +485,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
 
+              if (_diagnosticSummary.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _connectionOk == true
+                        ? Colors.green.withOpacity(0.08)
+                        : Colors.red.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _connectionOk == true
+                          ? Colors.green.withOpacity(0.3)
+                          : Colors.red.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _connectionOk == true ? Icons.check_circle_outline : Icons.error_outline,
+                        color: _connectionOk == true ? Colors.green : Colors.red,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _diagnosticSummary,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: _connectionOk == true
+                                ? (Theme.of(context).brightness == Brightness.dark ? Colors.green.shade200 : Colors.green.shade900)
+                                : (Theme.of(context).brightness == Brightness.dark ? Colors.red.shade200 : Colors.red.shade900),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 32),
 
               // ── Step 4: Register ─────────────────────────────────────────
@@ -714,45 +836,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(),
               const SizedBox(height: 16),
 
-              // ── Tools ────────────────────────────────────────────────────
-              _StepIndicator(step: 0, title: 'Tools', isActive: false),
+              // ── App Version & Updates ─────────────────────────────────────
+              _StepIndicator(step: 0, title: 'App Version & Updates', isActive: false),
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    try {
-                      final api = ApiService();
-                      final status = await api.checkAppStatus();
-                      if (context.mounted) {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text('Server Status'),
-                            content: Text(status['message'] ?? 'Status: ${status['status']}\nMin Version: ${status['min_version']}'),
-                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Server unreachable'), backgroundColor: Colors.red),
-                        );
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.system_update_alt),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: Color(0xFF009CA6)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              _Card(
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF009CA6).withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.system_update_rounded, color: Color(0xFF009CA6), size: 22),
+                    ),
+                    title: const Text('Mobile App Version', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    subtitle: Text('Installed release: v$_currentAppVersion', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    trailing: TextButton.icon(
+                      onPressed: _checkingUpdate ? null : _checkForUpdatesManually,
+                      icon: _checkingUpdate
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.refresh, size: 16),
+                      label: Text(_checkingUpdate ? 'Checking...' : 'Check Update'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF009CA6),
+                        textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
                   ),
-                  label: const Text('Check Server Status & Updates', style: TextStyle(color: Color(0xFF009CA6))),
-                ),
+                ],
               ),
 
+              const SizedBox(height: 24),
+              const Divider(),
               const SizedBox(height: 16),
+
+              // ── Help & Documentation ─────────────────────────────────────
+              _StepIndicator(step: 0, title: 'Help & Documentation', isActive: false),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
